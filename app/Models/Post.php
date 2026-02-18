@@ -14,9 +14,10 @@ class Post extends Model
         'category', 
         'title', 
         'description', 
+        'event_date',
         'price', 
+        'tags',
         'image', 
-        'event_date'
     ];
 
     protected $casts = [
