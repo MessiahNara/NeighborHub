@@ -2,24 +2,24 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use App\Models\Post;
 
-class DatabaseSeeder extends Seeder
+class PostSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $data = [
+            ['title' => 'Selling Bangus', 'category' => 'buy_sell'],
+            ['title' => 'Borrow Ladder', 'category' => 'borrow'],
+            ['title' => 'Electrician Service', 'category' => 'service'],
+            ['title' => 'Town Fiesta', 'category' => 'event'],
+            ['title' => 'Binmaley Plaza', 'category' => 'place'],
+            ['title' => 'Water Interruption', 'category' => 'announcement'],
+        ];
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        foreach ($data as $item) {
+            Post::create($item);
+        }
     }
 }
