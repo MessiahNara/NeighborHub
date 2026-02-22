@@ -17,11 +17,11 @@
 
         <div class="bg-[#F3F3F7] rounded-sm overflow-hidden shadow-sm">
             <div class="flex">
-                <a href="{{ route('login') }}" class="flex-1 py-4 text-center bg-[#00BCD4] hover:bg-[#00acc1] transition">
+                <a href="{{ route('login') }}" class="flex-1 py-4 text-center bg-[#8A8A9D] hover:bg-[#7a7a8c] transition">
                     <span class="text-white font-black tracking-widest uppercase text-sm">Sign In</span>
                 </a>
-                <div class="flex-1 py-4 text-center bg-white border-b-2 border-[#36B3C9]">
-                    <span class="text-[#36B3C9] font-black tracking-widest uppercase text-sm">Sign Up</span>
+                <div class="flex-1 py-4 text-center bg-[#00BCD4]">
+                    <span class="text-[#ffffff] font-black tracking-widest uppercase text-sm">Sign Up</span>
                 </div>
             </div>
 

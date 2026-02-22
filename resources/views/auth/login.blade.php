@@ -17,10 +17,10 @@
 
         <div class="bg-[#F3F3F7] rounded-sm overflow-hidden shadow-sm">
             <div class="flex">
-                <div class="flex-1 py-4 text-center bg-white">
-                    <span class="text-[#36B3C9] font-black tracking-widest uppercase text-sm">Sign In</span>
+                <div class="flex-1 py-4 text-center bg-[#00BCD4]">
+                    <span class="text-[#fcfcfc] font-black tracking-widest uppercase text-sm">Sign In</span>
                 </div>
-                <a href="{{ route('register') }}" class="flex-1 py-4 text-center bg-[#00BCD4] hover:bg-[#00acc1] transition">
+                <a href="{{ route('register') }}" class="flex-1 py-4 text-center bg-[#8A8A9D] hover:bg-[#7a7a8c] transition">
                     <span class="text-white font-black tracking-widest uppercase text-sm">Sign Up</span>
                 </a>
             </div>
@@ -40,7 +40,7 @@
                 </div>
 
                 <div class="pt-4">
-                    <button type="submit" class="w-full bg-[#8A8A9D] hover:bg-[#7a7a8c] text-white font-black py-3 uppercase text-xs tracking-widest transition shadow-lg">
+                    <button type="submit" class="w-full bg-[#8A8A9D] hover:bg-[#00acc1] text-white font-black py-3 uppercase text-xs tracking-widest transition shadow-lg">
                         Sign In
                     </button>
                 </div>
