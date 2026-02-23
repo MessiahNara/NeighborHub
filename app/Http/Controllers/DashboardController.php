@@ -29,9 +29,10 @@ class DashboardController extends Controller
     }
 
     /**
-     * Show a specific category.
+     * Show a specific category with search and tag filtering.
+     * UPDATE: Added Request $request to handle filters from the category search bar.
      */
-    public function show($type)
+    public function show(Request $request, $type)
     {
         $categoryMap = [
             'announce' => 'announcements',
@@ -40,28 +41,41 @@ class DashboardController extends Controller
         ];
 
         $dbCategory = $categoryMap[$type] ?? $type;
-        $posts = Post::where('category', $dbCategory)->latest()->get();
+        
+        // Start building the query
+        $query = Post::where('category', $dbCategory);
+
+        // UPDATE: Search by title if the user typed in the search bar
+        if ($request->filled('search')) {
+            $query->where('title', 'like', '%' . $request->search . '%');
+        }
+
+        // UPDATE: Filter by tag if selected in the category search bar
+        if ($request->filled('tag')) {
+            $query->whereJsonContains('tags', $request->tag);
+        }
+
+        $posts = $query->latest()->get();
         
         return view('category', compact('posts', 'type'));
     }
 
     /**
      * Save a new post to the MySQL database.
+     * UPDATE: Changed 'tags' to validate as an array for multiple selection.
      */
     public function store(Request $request)
     {
-        // 1. UPDATE: Added 'tags' to validation
         $request->validate([
             'title'       => 'required|string|max:255',
             'category'    => 'required',
             'description' => 'nullable',
             'price'       => 'nullable|numeric',
             'event_date'  => 'nullable|date',
-            'tags'        => 'nullable|string', // Validates the new tag dropdown
+            'tags'        => 'nullable|array', // CHANGED: Now accepts multiple tags as an array
             'images.*'    => 'image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
-        // 2. UPDATE: Added 'tags' to the list of saved fields
         $data = $request->only(['title', 'category', 'description', 'price', 'event_date', 'tags']);
         
         if ($request->hasFile('images')) {
@@ -121,7 +135,7 @@ class DashboardController extends Controller
             'description' => $post->description,
             'price' => $post->price,
             'event_date' => $post->event_date,
-            'tags' => $post->tags, // 3. UPDATE: Send tags to the frontend
+            'tags' => $post->tags, 
             'category' => $post->category,
             'created_at' => $post->created_at,
             'user' => $post->user,

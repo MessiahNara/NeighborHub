@@ -19,13 +19,15 @@
         .fc-button-primary { background-color: #36B3C9 !important; border: none !important; border-radius: 1rem !important; font-weight: bold !important; }
         .fc-daygrid-event { background-color: #36B3C9; border: none; border-radius: 6px; padding: 2px 6px; cursor: pointer; }
         .fc-day-today { background-color: #f1fbfd !important; border-radius: 1.5rem; }
+
+        /* Custom Multiple Select Styling */
+        .tag-checkbox:checked + label { background-color: #36B3C9; color: white; border-color: #36B3C9; }
     </style>
 </head>
 
 @php
     $normalizedType = str_replace('_', '-', $type); 
     
-    // Category Logic
     $isBuySell = (str_contains($normalizedType, 'buy') && str_contains($normalizedType, 'sell'));
     $isBorrow  = ($normalizedType === 'borrow');
     $isEvent   = in_array($normalizedType, ['event', 'events']);
@@ -37,6 +39,8 @@
         $availableTags = ['Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Books', 'Tools', 'Appliances', 'Other'];
     } elseif($isBorrow) {
         $availableTags = ['Tools', 'Garden', 'Kitchen', 'Party Supplies', 'Books', 'Camping', 'Tech', 'Other'];
+    } elseif($normalizedType === 'services') {
+        $availableTags = ['Cleaning', 'Repairs', 'Tutoring', 'Delivery', 'Pet Care', 'Other'];
     }
 
     $calendarEvents = [];
@@ -61,15 +65,27 @@
                 <i class="fas fa-arrow-left"></i>
             </a>
             
-            <div class="flex-1 relative flex items-center">
-                <i class="fas fa-search absolute left-5 text-slate-300 z-10"></i>
-                <input type="text" id="searchInput" placeholder="Search..." 
-                       class="w-full bg-slate-50 border-none rounded-2xl py-3.5 pl-14 pr-10 focus:ring-2 focus:ring-[#36B3C9]/20 transition font-bold text-sm placeholder:text-slate-300 shadow-sm">
-                <button id="clearSearch" class="hidden absolute right-4 text-slate-300 hover:text-slate-500"><i class="fas fa-times-circle"></i></button>
-            </div>
+            <form action="{{ url()->current() }}" method="GET" class="flex-1 flex gap-3">
+                <div class="relative flex-1 group">
+                    <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 z-10"></i>
+                    <input type="text" name="search" id="searchInput" value="{{ request('search') }}" placeholder="Search in {{ str_replace(['_', '-'], ' ', $type) }}..." 
+                           class="w-full bg-slate-50 border-none rounded-2xl py-3.5 pl-14 pr-10 focus:ring-2 focus:ring-[#36B3C9]/20 transition font-bold text-sm placeholder:text-slate-300 shadow-sm">
+                </div>
+
+                @if(!empty($availableTags))
+                <select name="tag" onchange="this.form.submit()" class="bg-slate-50 border-none rounded-2xl px-6 font-bold text-sm text-slate-500 shadow-sm focus:ring-2 focus:ring-[#36B3C9]/20 cursor-pointer">
+                    <option value="">All Tags</option>
+                    @foreach($availableTags as $tag)
+                        <option value="{{ $tag }}" {{ request('tag') == $tag ? 'selected' : '' }}>{{ $tag }}</option>
+                    @endforeach
+                </select>
+                @endif
+                
+                <button type="submit" class="hidden md:block bg-slate-100 text-slate-400 px-6 rounded-2xl font-bold text-xs hover:bg-[#36B3C9] hover:text-white transition">Search</button>
+            </form>
             
             <button onclick="toggleModal('addModal')" class="bg-[#36B3C9] text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-cyan-100 transition hover:brightness-110 active:scale-95 flex items-center gap-2">
-                <i class="fas fa-plus"></i> <span class="hidden md:inline">Post Item</span>
+                <i class="fas fa-plus"></i> <span class="hidden md:inline">Post</span>
             </button>
         </div>
     </nav>
@@ -90,7 +106,7 @@
 
         <div class="relative z-10 {{ $useGrid ? 'grid grid-cols-2 md:grid-cols-4 gap-6' : 'space-y-4' }}" id="postsContainer">
             @forelse($posts as $post)
-                <div onclick="openDetail({{ $post->id }})" data-title="{{ strtolower($post->title) }}" 
+                <div onclick="openDetail({{ $post->id }})" 
                      class="post-item cursor-pointer bg-white p-5 rounded-[2.5rem] border border-slate-50 shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group relative {{ !$useGrid ? 'flex justify-between items-center' : '' }}">
                     
                     @if(!$useGrid)
@@ -100,6 +116,13 @@
                             </div>
                             <div>
                                 <p class="font-black text-2xl text-slate-800 leading-tight mb-1 group-hover:text-[#36B3C9] transition">{{ $post->title }}</p>
+                                <div class="flex flex-wrap gap-1 mb-2">
+                                    @if(is_array($post->tags))
+                                        @foreach($post->tags as $t)
+                                            <span class="text-[8px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">{{ $t }}</span>
+                                        @endforeach
+                                    @endif
+                                </div>
                                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                     <span class="text-[#36B3C9]">{{ $post->user->name ?? 'Neighbor' }}</span>
                                     <span class="h-1 w-1 bg-slate-200 rounded-full"></span>
@@ -126,8 +149,16 @@
                             @endif
 
                             @if($post->tags)
-                                <div class="absolute top-3 left-3 bg-black/60 backdrop-blur-sm text-white text-[9px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">
-                                    {{ $post->tags }}
+                                <div class="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[80%]">
+                                    @php $displayTags = is_array($post->tags) ? $post->tags : [$post->tags]; @endphp
+                                    @foreach(array_slice($displayTags, 0, 2) as $t)
+                                        <div class="bg-black/60 backdrop-blur-sm text-white text-[8px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">
+                                            {{ $t }}
+                                        </div>
+                                    @endforeach
+                                    @if(count($displayTags) > 2)
+                                        <div class="bg-black/60 backdrop-blur-sm text-white text-[8px] font-bold px-2 py-1 rounded-lg">+{{ count($displayTags) - 2 }}</div>
+                                    @endif
                                 </div>
                             @endif
                         </div>
@@ -160,7 +191,6 @@
                 </div>
             @endforelse
         </div>
-        <div id="noResults" class="hidden text-center py-20 opacity-40 italic font-bold">No results found.</div>
     </div>
 
     <div id="addModal" class="hidden fixed inset-0 z-[100] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md transition-all">
@@ -175,15 +205,17 @@
                 <input type="text" name="title" placeholder="Item Name / Title" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
 
                 @if(!empty($availableTags))
-                    <div class="relative">
-                        <select name="tags" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 appearance-none cursor-pointer">
-                            <option value="" disabled selected>Select a Category Tag</option>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Tags (Select Multiple)</label>
+                        <div class="grid grid-cols-2 gap-2">
                             @foreach($availableTags as $tag)
-                                <option value="{{ $tag }}">{{ $tag }}</option>
+                                <div class="relative">
+                                    <input type="checkbox" name="tags[]" value="{{ $tag }}" id="tag_{{ $tag }}" class="hidden tag-checkbox">
+                                    <label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer transition border border-transparent hover:bg-slate-100">
+                                        {{ $tag }}
+                                    </label>
+                                </div>
                             @endforeach
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-5 flex items-center px-2 text-slate-400">
-                            <i class="fas fa-chevron-down text-xs"></i>
                         </div>
                     </div>
                 @endif
@@ -239,10 +271,9 @@
 
                 <h2 id="detTitle" class="text-5xl font-black tracking-tighter leading-none text-slate-800 mb-4 uppercase"></h2>
                 
-                <div class="flex items-center gap-3 mb-6">
+                <div class="flex flex-wrap items-center gap-3 mb-6">
                     <div id="detPrice" class="text-3xl font-black text-[#36B3C9]"></div>
-                    <div id="detTag" class="hidden bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest"></div>
-                </div>
+                    <div id="detTagsContainer" class="flex gap-2"></div> </div>
 
                 <p id="detDesc" class="text-slate-500 text-lg leading-relaxed mb-12 whitespace-pre-wrap font-medium"></p>
 
@@ -277,25 +308,6 @@
             modal.classList.toggle('hidden'); 
             if(id === 'addModal' && modal.classList.contains('hidden')) resetUploadForm();
         }
-
-        // --- SEARCH ---
-        const searchInput = document.getElementById('searchInput');
-        const clearBtn = document.getElementById('clearSearch');
-        const noResults = document.getElementById('noResults');
-
-        searchInput.addEventListener('input', function(e) {
-            const term = e.target.value.toLowerCase().trim();
-            const posts = document.querySelectorAll('.post-item');
-            let hasVisiblePosts = false;
-            clearBtn.classList.toggle('hidden', term === '');
-            posts.forEach(post => {
-                const title = post.getAttribute('data-title');
-                if (title.includes(term)) { post.classList.remove('hidden'); hasVisiblePosts = true; } 
-                else { post.classList.add('hidden'); }
-            });
-            noResults.classList.toggle('hidden', hasVisiblePosts);
-        });
-        clearBtn.addEventListener('click', () => { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); });
 
         // --- IMAGE UPLOAD ---
         const fileInput = document.getElementById('imagesInput');
@@ -332,8 +344,7 @@
                 .then(d => {
                     document.getElementById('detTitle').innerText = d.title;
                     document.getElementById('detDesc').innerText = d.description || 'No description provided.';
-                    const userName = d.user ? d.user.name : 'Neighbor';
-                    document.getElementById('detUser').innerText = userName;
+                    document.getElementById('detUser').innerText = d.user ? d.user.name : 'Neighbor';
                     document.getElementById('detDate').innerText = new Date(d.created_at).toLocaleDateString();
                     
                     const priceEl = document.getElementById('detPrice');
@@ -346,17 +357,21 @@
                         priceEl.innerText = d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer';
                     } else { priceEl.innerText = ''; }
 
-                    // --- SHOW TAG IN MODAL ---
-                    const tagEl = document.getElementById('detTag');
+                    // UPDATE: Show multiple tags in Detail Modal
+                    const tagContainer = document.getElementById('detTagsContainer');
+                    tagContainer.innerHTML = '';
                     if(d.tags) {
-                        tagEl.innerText = d.tags;
-                        tagEl.classList.remove('hidden');
-                    } else {
-                        tagEl.classList.add('hidden');
+                        const tagsArray = Array.isArray(d.tags) ? d.tags : [d.tags];
+                        tagsArray.forEach(t => {
+                            const badge = document.createElement('div');
+                            badge.className = "bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest";
+                            badge.innerText = t;
+                            tagContainer.appendChild(badge);
+                        });
                     }
 
                     const contactArea = document.getElementById('contactButtonContainer');
-                    if(isBuySell || d.category === 'borrow' || d.category === 'service') {
+                    if(isBuySell || d.category === 'borrow' || d.category === 'services') {
                         contactArea.innerHTML = `<a href="#" class="w-full bg-[#36B3C9] text-white font-black py-5 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message</a>`;
                     } else { contactArea.innerHTML = ''; }
 
@@ -385,12 +400,14 @@
                     toggleModal('detailModal');
                 });
         }
+        
         function triggerDelete(id) {
             const form = document.getElementById('deleteForm');
             form.action = `/post/${id}`;
             if(!document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal');
             toggleModal('deleteConfirmModal');
         }
+
         function moveGallery(dir) {
             const container = document.getElementById('detImg');
             currentIdx += dir;
@@ -402,19 +419,13 @@
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
-            // DEBUG: Check console to see if events are being passed correctly
-            console.log("Calendar Events Loaded:", @json($calendarEvents));
-
             if(calendarEl) {
                 var calendar = new FullCalendar.Calendar(calendarEl, {
                     initialView: 'dayGridMonth',
                     headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listWeek' },
                     height: 550,
                     events: @json($calendarEvents),
-                    eventClick: function(info) { 
-                        // Trigger the detail popup when an event is clicked
-                        openDetail(info.event.id); 
-                    }
+                    eventClick: function(info) { openDetail(info.event.id); }
                 });
                 calendar.render();
             }

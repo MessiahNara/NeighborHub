@@ -22,10 +22,9 @@ class Post extends Model
 
     protected $casts = [
         'image' => 'array',
+        'tags'  => 'array', // Added this line
     ];
 
-    // THIS IS THE IMPORTANT PART
-    // It tells Laravel: "Every post belongs to a User"
     public function user()
     {
         return $this->belongsTo(User::class);
