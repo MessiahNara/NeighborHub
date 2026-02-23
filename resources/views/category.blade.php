@@ -273,7 +273,8 @@
                 
                 <div class="flex flex-wrap items-center gap-3 mb-6">
                     <div id="detPrice" class="text-3xl font-black text-[#36B3C9]"></div>
-                    <div id="detTagsContainer" class="flex gap-2"></div> </div>
+                    <div id="detTagsContainer" class="flex gap-2"></div> 
+                </div>
 
                 <p id="detDesc" class="text-slate-500 text-lg leading-relaxed mb-12 whitespace-pre-wrap font-medium"></p>
 
@@ -350,14 +351,14 @@
                     const priceEl = document.getElementById('detPrice');
                     const isBuySell = (d.category.includes('buy') && d.category.includes('sell')); 
 
-                    if(d.category === 'event' && d.event_date) {
+                    if(d.category === 'events' && d.event_date) {
                         const eventDate = new Date(d.event_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
                         priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span>${eventDate}`;
                     } else if(isBuySell) {
                         priceEl.innerText = d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer';
                     } else { priceEl.innerText = ''; }
 
-                    // UPDATE: Show multiple tags in Detail Modal
+                    // Show multiple tags in Detail Modal
                     const tagContainer = document.getElementById('detTagsContainer');
                     tagContainer.innerHTML = '';
                     if(d.tags) {
@@ -397,7 +398,11 @@
                         else { document.getElementById('prevBtn').classList.remove('hidden'); document.getElementById('nextBtn').classList.remove('hidden'); }
                     } else { imgSection.classList.add('hidden'); }
 
-                    toggleModal('detailModal');
+                    // Open the modal
+                    const modal = document.getElementById('detailModal');
+                    if (modal.classList.contains('hidden')) {
+                        toggleModal('detailModal');
+                    }
                 });
         }
         
@@ -431,6 +436,21 @@
             }
         });
         @endif
+
+        // --- NEW: URL PARAMETER CHECKER TO AUTO-OPEN POSTS ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const postIdToOpen = urlParams.get('post');
+            
+            if (postIdToOpen) {
+                // Auto open the specific post detail modal
+                openDetail(postIdToOpen);
+                
+                // Clean the URL so refreshing the page doesn't keep opening it
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+
     </script>
 </body>
 </html>

@@ -25,7 +25,14 @@ class DashboardController extends Controller
             'requests'   => Post::where('category', 'requests')->count(),
         ];
 
-        return view('dashboard', compact('counts'));
+        // NEW: Fetch the 5 most recent posts created by OTHER users for the notification dropdown
+        $recentUpdates = Post::with('user')
+                            ->where('user_id', '!=', Auth::id())
+                            ->latest()
+                            ->take(5)
+                            ->get();
+
+        return view('dashboard', compact('counts', 'recentUpdates'));
     }
 
     /**
