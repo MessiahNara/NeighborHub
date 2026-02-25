@@ -122,6 +122,7 @@
         // 1. Get real data from Laravel
         const currentCounts = @json($counts);
         const recentUpdates = @json($recentUpdates ?? []); 
+        const currentUserId = {{ Auth::id() }};
         
         // 2. Configuration for "Identity" (Icons/Names)
         const categoryConfig = {
@@ -147,27 +148,40 @@
 
             if (recentUpdates && recentUpdates.length > 0) {
                 recentUpdates.forEach(post => {
-                    // If this specific post ID is NOT in our read array, it's a new notification!
-                    if (!readNotifs.includes(post.id)) {
+                    // Check if this post/update was already clicked
+                    // We also add the updated_at timestamp to the check so if it gets updated again, it un-reads!
+                    const notifKey = post.id + '_' + new Date(post.updated_at).getTime();
+
+                    if (!readNotifs.includes(notifKey)) {
                         hasNew = true;
                         
-                        // Map the db category back to the exact URL slug needed
                         const routeMap = { 'announcements': 'announce' };
                         const routeCat = routeMap[post.category] || post.category;
-                        
-                        // Creates a link to the category page with the exact Post ID attached
                         const url = `/category/${routeCat}?post=${post.id}`;
                         const config = categoryConfig[post.category] || { name: post.category, icon: 'fa-bell' };
 
+                        // CREATE THE STATUS BADGE
+                        let statusBadge = '';
+                        if (['requests', 'complaints'].includes(post.category)) {
+                            const sColors = { 'pending': 'text-yellow-600 bg-yellow-100', 'approved': 'text-green-600 bg-green-100', 'completed': 'text-blue-600 bg-blue-100', 'rejected': 'text-red-600 bg-red-100' };
+                            const badgeClass = sColors[post.status || 'pending'] || 'text-slate-500 bg-slate-100';
+                            statusBadge = `<span class="ml-2 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${badgeClass}">${post.status || 'Pending'}</span>`;
+                        }
+
+                        // Determine the author text
+                        const authorText = post.user_id === currentUserId ? '<span class="text-[#36B3C9]">My Request Update</span>' : (post.user ? post.user.name : 'Neighbor');
+
                         html += `
-                            <a href="${url}" onclick="markAsRead(${post.id})" class="flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 group">
+                            <a href="${url}" onclick="markAsRead('${notifKey}')" class="flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 group">
                                 <div class="h-11 w-11 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] group-hover:scale-110 transition-transform">
                                     <i class="fas ${config.icon} text-sm"></i>
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <p class="text-[10px] font-bold text-[#36B3C9] uppercase tracking-wider mb-0.5">${config.name}</p>
+                                    <p class="text-[10px] font-bold text-[#36B3C9] uppercase tracking-wider mb-0.5 flex items-center">
+                                        ${config.name} ${statusBadge}
+                                    </p>
                                     <p class="text-sm font-black text-slate-700 leading-tight truncate">${post.title}</p>
-                                    <p class="text-[9px] font-bold text-slate-400 mt-1"><i class="fas fa-user mr-1"></i> ${post.user ? post.user.name : 'Neighbor'}</p>
+                                    <p class="text-[9px] font-bold text-slate-400 mt-1"><i class="fas fa-user mr-1"></i> ${authorText}</p>
                                 </div>
                             </a>
                         `;
@@ -175,7 +189,6 @@
                 });
             }
 
-            // Show/Hide Red Dot based on actual unread status
             if (hasNew) {
                 if(badge) badge.classList.remove('hidden');
                 notifList.innerHTML = html;
@@ -186,27 +199,25 @@
                         <div class="bg-slate-100 h-16 w-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
                             <i class="fas fa-check-circle text-xl"></i>
                         </div>
-                        <p class="text-xs font-bold text-slate-500 uppercase tracking-widest leading-snug">All caught up!<br>No new posts.</p>
+                        <p class="text-xs font-bold text-slate-500 uppercase tracking-widest leading-snug">All caught up!<br>No new updates.</p>
                     </div>
                 `;
             }
         }
 
-        // Run on Page Load
         renderNotifications();
 
-        // Save exactly which post you clicked
-        window.markAsRead = function(postId) {
-            readNotifs.push(postId);
+        window.markAsRead = function(notifKey) {
+            readNotifs.push(notifKey);
             localStorage.setItem('neighborhub_read_notifs', JSON.stringify(readNotifs));
         };
 
-        // Push ALL current post IDs into the read array to clear everything at once
         window.clearAllNotifications = function() {
             if (recentUpdates) {
                 recentUpdates.forEach(post => {
-                    if (!readNotifs.includes(post.id)) {
-                        readNotifs.push(post.id);
+                    const notifKey = post.id + '_' + new Date(post.updated_at).getTime();
+                    if (!readNotifs.includes(notifKey)) {
+                        readNotifs.push(notifKey);
                     }
                 });
                 localStorage.setItem('neighborhub_read_notifs', JSON.stringify(readNotifs));
@@ -214,13 +225,11 @@
             }
         };
 
-        // Open/Close Tab Logic
         function toggleNotifications() {
             const tab = document.getElementById('notificationTab');
             const btn = document.getElementById('notificationBtn');
             tab.classList.toggle('hidden');
 
-            // Logic to close when clicking outside
             if (!tab.classList.contains('hidden')) {
                 const closeHandler = (e) => {
                     if (!tab.contains(e.target) && !btn.contains(e.target)) {

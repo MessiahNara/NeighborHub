@@ -17,7 +17,8 @@ class Post extends Model
         'event_date',
         'price', 
         'tags',
-        'image', 
+        'image',
+        'status',
     ];
 
     protected $casts = [

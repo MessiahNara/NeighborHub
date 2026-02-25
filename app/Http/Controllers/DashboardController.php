@@ -14,30 +14,49 @@ class DashboardController extends Controller
      */
     public function index()
     {
+        // Check if the current user is an admin
+        $isAdmin = Auth::check() && Auth::user()->role === 'admin';
+        $userId = Auth::id();
+
         $counts = [
             'buy_sell'   => Post::where('category', 'buy-sell')->count(),
             'borrow'     => Post::where('category', 'borrow')->count(),
             'events'     => Post::where('category', 'events')->count(),
             'services'   => Post::where('category', 'services')->count(),
-            'places'     => Post::where('category', 'places')->count(),
             'announce'   => Post::where('category', 'announcements')->count(),
-            'complaints' => Post::where('category', 'complaints')->count(),
-            'requests'   => Post::where('category', 'requests')->count(),
+            
+            // Only count these if the user is an admin. Otherwise, send 'null' (empty).
+            'places'     => $isAdmin ? Post::where('category', 'places')->count() : null,
+            'complaints' => $isAdmin ? Post::where('category', 'complaints')->count() : null,
+            'requests'   => $isAdmin ? Post::where('category', 'requests')->count() : null,
         ];
 
-        // NEW: Fetch the 5 most recent posts created by OTHER users for the notification dropdown
-        $recentUpdates = Post::with('user')
-                            ->where('user_id', '!=', Auth::id())
-                            ->latest()
-                            ->take(5)
-                            ->get();
+        // THE FIX: Start building the recent updates query
+        $recentUpdatesQuery = Post::with('user');
+
+        if ($isAdmin) {
+            // Admins see everyone else's newest updates
+            $recentUpdatesQuery->where('user_id', '!=', $userId);
+        } else {
+            // Regular users see: public posts from others OR status updates on their own requests!
+            $recentUpdatesQuery->where(function($query) use ($userId) {
+                $query->where('user_id', '!=', $userId)
+                      ->whereNotIn('category', ['complaints', 'requests']);
+            })->orWhere(function($query) use ($userId) {
+                $query->where('user_id', $userId)
+                      ->whereIn('category', ['complaints', 'requests']);
+            });
+        }
+
+        // Order by `updated_at` so when an Admin changes the status, it bumps to the top!
+        $recentUpdates = $recentUpdatesQuery->orderBy('updated_at', 'desc')->take(5)->get();
 
         return view('dashboard', compact('counts', 'recentUpdates'));
     }
 
     /**
      * Show a specific category with search and tag filtering.
-     * UPDATE: Added Request $request to handle filters from the category search bar.
+     * UPDATE: Added logic to make complaints and requests private to the sender and admins.
      */
     public function show(Request $request, $type)
     {
@@ -52,12 +71,21 @@ class DashboardController extends Controller
         // Start building the query
         $query = Post::where('category', $dbCategory);
 
-        // UPDATE: Search by title if the user typed in the search bar
+        // Privacy control for requests and complaints
+        $privateCategories = ['requests', 'complaints'];
+        if (in_array($dbCategory, $privateCategories)) {
+            // If the user is NOT an admin, they can only see their own private posts
+            if (Auth::user()->role !== 'admin') {
+                $query->where('user_id', Auth::id());
+            }
+        }
+
+        // Search by title if the user typed in the search bar
         if ($request->filled('search')) {
             $query->where('title', 'like', '%' . $request->search . '%');
         }
 
-        // UPDATE: Filter by tag if selected in the category search bar
+        // Filter by tag if selected in the category search bar
         if ($request->filled('tag')) {
             $query->whereJsonContains('tags', $request->tag);
         }
@@ -69,7 +97,7 @@ class DashboardController extends Controller
 
     /**
      * Save a new post to the MySQL database.
-     * UPDATE: Changed 'tags' to validate as an array for multiple selection.
+     * UPDATE: Restricts announcements and events to Admins using all possible form variations.
      */
     public function store(Request $request)
     {
@@ -79,11 +107,25 @@ class DashboardController extends Controller
             'description' => 'nullable',
             'price'       => 'nullable|numeric',
             'event_date'  => 'nullable|date',
-            'tags'        => 'nullable|array', // CHANGED: Now accepts multiple tags as an array
+            'tags'        => 'nullable|array', 
             'images.*'    => 'image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
+        // We added all possible variations the HTML form might send
+        $adminOnlyCategories = ['announce', 'announcements', 'event', 'events'];
+        
+        if (in_array($request->category, $adminOnlyCategories) && Auth::user()->role !== 'admin') {
+            return back()->with('error', 'Only administrators can post in the Announcements or Events category.');
+        }
+
         $data = $request->only(['title', 'category', 'description', 'price', 'event_date', 'tags']);
+        
+        // Ensure the database always gets the proper full category name for consistency
+        if ($data['category'] === 'announce') {
+            $data['category'] = 'announcements';
+        } elseif ($data['category'] === 'event') {
+            $data['category'] = 'events';
+        }
         
         if ($request->hasFile('images')) {
             $imageNames = [];
@@ -100,6 +142,28 @@ class DashboardController extends Controller
         Post::create($data);
 
         return back()->with('success', 'Post created successfully.');
+    }
+
+    /**
+     * NEW: Update the status and appointment date of a request (Admin Only)
+     */
+    public function updateStatus(Request $request, $id)
+    {
+        $post = Post::findOrFail($id);
+
+        if (Auth::user()->role !== 'admin') {
+            return abort(403, 'Unauthorized action.');
+        }
+
+        $post->status = $request->status;
+        
+        if ($request->filled('event_date')) {
+            $post->event_date = $request->event_date;
+        }
+
+        $post->save();
+
+        return back()->with('success', 'Appointment scheduled/updated successfully!');
     }
 
     /**
@@ -144,6 +208,7 @@ class DashboardController extends Controller
             'event_date' => $post->event_date,
             'tags' => $post->tags, 
             'category' => $post->category,
+            'status' => $post->status, // <-- ADDED: Passes status to the frontend
             'created_at' => $post->created_at,
             'user' => $post->user,
             'image' => $post->image
