@@ -107,13 +107,26 @@
     </nav>
 
     <div class="max-w-6xl mx-auto p-6 pb-24">
-        <div class="relative z-10 flex justify-between items-end mb-10">
+        <div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
             <div>
                 <h1 class="text-5xl font-black uppercase tracking-tighter text-slate-800 leading-none">{{ str_replace(['_', '-'], ' ', $type) }}</h1>
                 @if($isAdmin || !in_array($normalizedType, ['places', 'complaints', 'requests']))
                     <p class="text-slate-400 font-bold text-xs uppercase tracking-widest mt-2 ml-1">{{ count($posts) }} Active Records</p>
                 @endif
             </div>
+
+            @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services']))
+                <div class="flex bg-slate-200/50 p-1 rounded-2xl">
+                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}" 
+                       class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ !request('my_posts') ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
+                        All
+                    </a>
+                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => '1']) }}" 
+                       class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ request('my_posts') == '1' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
+                        My Posts
+                    </a>
+                </div>
+            @endif
         </div>
 
         @if($isEvent)
@@ -436,10 +449,49 @@
             fetch(`/api/post/${id}`)
                 .then(r => r.json())
                 .then(d => {
-                    // Populate Description Block 
+                    // --- 1. THE FIX: BEAUTIFUL DESCRIPTION PARSING ---
                     const descEl = document.getElementById('detDesc');
                     if (d.description) {
-                        descEl.innerText = d.description;
+                        if (d.category === 'requests' && d.description.includes('Requester Name:')) {
+                            // Extract fields safely
+                            const lines = d.description.split('\n');
+                            let reqName = '', homeAddr = '', purpose = '';
+                            let isPurpose = false;
+                            lines.forEach(line => {
+                                if (line.startsWith('Requester Name:')) reqName = line.replace('Requester Name:', '').trim();
+                                else if (line.startsWith('Home Address:')) homeAddr = line.replace('Home Address:', '').trim();
+                                else if (line.startsWith('Purpose for Request:')) isPurpose = true;
+                                else if (isPurpose) purpose += line + '\n';
+                            });
+                            
+                            // Render as Modern Cards
+                            descEl.className = "mb-8";
+                            descEl.innerHTML = `
+                                <div class="bg-slate-50 border border-slate-100 rounded-[2rem] p-8">
+                                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                                        <i class="fas fa-file-invoice text-[#36B3C9] text-lg"></i> Document Request Details
+                                    </h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50">
+                                            <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Requester Name</span>
+                                            <span class="text-sm font-bold text-slate-800">${reqName}</span>
+                                        </div>
+                                        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50">
+                                            <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Home Address</span>
+                                            <span class="text-sm font-bold text-slate-800">${homeAddr}</span>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50">
+                                        <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Purpose for Request</span>
+                                        <p class="text-sm font-medium text-slate-600 whitespace-pre-wrap mt-1">${purpose.trim()}</p>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // Standard description layout
+                            descEl.className = "bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100";
+                            descEl.innerText = d.description;
+                        }
                         descEl.classList.remove('hidden');
                     } else {
                         descEl.classList.add('hidden');
@@ -470,34 +522,42 @@
                         }
                     }
 
-                    // --- THE FIX: APPOINTMENT UI & DATE PARSING LOGIC ---
                     if (d.category === 'requests' || d.category === 'complaints') {
-                        // 1. Beautiful Title and Status Badge
+                        // --- 2. THE FIX: BEAUTIFUL SPACED-OUT BADGES ---
                         const statusColors = { 
                             'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200', 
                             'approved': 'bg-green-100 text-green-700 border-green-200', 
                             'completed': 'bg-blue-100 text-blue-700 border-blue-200', 
                             'rejected': 'bg-red-100 text-red-700 border-red-200' 
                         };
+                        const statusIcons = {
+                            'pending': 'fa-hourglass-half',
+                            'approved': 'fa-check-circle',
+                            'completed': 'fa-flag-checkered',
+                            'rejected': 'fa-times-circle'
+                        };
+                        
                         const sColor = statusColors[d.status || 'pending'] || 'bg-slate-100 text-slate-700 border-slate-200';
+                        const sIcon = statusIcons[d.status || 'pending'] || 'fa-info-circle';
                         
                         titleContainer.innerHTML = `
                             <div class="flex flex-col items-start gap-4">
-                                <h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>
-                                <span class="px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border shadow-sm ${sColor}">
-                                    Status: ${(d.status || 'pending')}
+                                <h2 class="text-4xl md:text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>
+                                <span class="px-5 py-2 rounded-full text-[11px] font-black tracking-widest uppercase border shadow-sm flex items-center gap-2 ${sColor}">
+                                    <i class="fas ${sIcon}"></i> STATUS: ${(d.status || 'pending')}
                                 </span>
                             </div>
                         `;
                         
-                        // 2. Scheduled Date Info Block
                         if(d.event_date) {
-                            const eventDate = new Date(d.event_date).toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
-                            const dateLabel = d.status === 'rejected' ? 'Previously Scheduled Date / Actioned On' : 'Scheduled For';
+                            // Let's use a nice display "Wednesday, February 25, 2026 at 08:00 AM"
+                            const eventDateObj = new Date(d.event_date.replace(' ', 'T'));
+                            const eventDate = isNaN(eventDateObj) ? d.event_date : eventDateObj.toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
+                            const dateLabel = d.status === 'rejected' ? 'Actioned On' : 'Scheduled For';
                             priceEl.innerHTML = `
-                                <div class="bg-slate-50 border border-slate-100 p-5 rounded-[1.5rem] w-full mt-2">
-                                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">${dateLabel}</span>
-                                    <span class="text-[#36B3C9] text-xl font-black tracking-tight">${eventDate}</span>
+                                <div class="bg-[#36B3C9]/10 border border-[#36B3C9]/20 p-5 rounded-[1.5rem] w-full mt-2">
+                                    <span class="text-[10px] font-black text-[#36B3C9] uppercase tracking-widest block mb-1"><i class="fas fa-calendar-alt mr-1"></i> ${dateLabel}</span>
+                                    <span class="text-slate-800 text-lg font-black tracking-tight">${eventDate}</span>
                                 </div>
                             `;
                         } else {
@@ -510,20 +570,12 @@
                             `;
                         }
 
-                        // 3. Admin Panel with foolproof date parsing!
                         if (userRole === 'admin') {
+                            // --- 3. THE FIX: RELIABLE DATE PARSER FOR ADMIN INPUT ---
                             let rawDate = '';
                             if (d.event_date) {
-                                // This precisely converts the database timestamp to HTML datetime-local format
-                                const dt = new Date(d.event_date);
-                                if (!isNaN(dt.getTime())) {
-                                    const yyyy = dt.getFullYear();
-                                    const mm = String(dt.getMonth() + 1).padStart(2, '0');
-                                    const dd = String(dt.getDate()).padStart(2, '0');
-                                    const hh = String(dt.getHours()).padStart(2, '0');
-                                    const min = String(dt.getMinutes()).padStart(2, '0');
-                                    rawDate = `${yyyy}-${mm}-${dd}T${hh}:${min}`;
-                                }
+                                // This precisely converts "YYYY-MM-DD HH:MM:SS" from database to "YYYY-MM-DDThh:mm" for the HTML picker
+                                rawDate = d.event_date.replace(' ', 'T').substring(0, 16);
                             }
                             
                             adminControls.innerHTML = `
