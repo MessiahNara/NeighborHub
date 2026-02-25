@@ -245,5 +245,6 @@
                 setTimeout(() => document.addEventListener('click', closeHandler), 10);
             }
         }
+        
     </script>
 </x-app-layout>

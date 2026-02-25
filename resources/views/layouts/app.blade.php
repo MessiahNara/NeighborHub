@@ -24,10 +24,26 @@
                 <a href="{{ route('dashboard') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-[#36B3C9] hover:text-white {{ request()->routeIs('dashboard') ? 'bg-[#36B3C9] text-white' : 'text-slate-600' }}">
                      <i class="fas fa-th-large mr-4 text-lg"></i> Dashboard
                 </a>
+
                 <a href="{{ route('profile.edit') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-[#36B3C9] hover:text-white {{ request()->routeIs('profile.edit') ? 'bg-[#36B3C9] text-white' : 'text-slate-600' }}">
                     <i class="fas fa-user-circle mr-4 text-lg"></i> My Profile
                 </a>
+
+                @if(Auth::check() && strtolower(trim(Auth::user()->role)) === 'admin')
+                    <div class="pt-4 pb-2">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-4 mb-2">Admin Tools</p>
+                        
+                        <a href="{{ route('admin.dashboard') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.dashboard') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
+                            <i class="fas fa-chart-line mr-4 text-lg"></i> Admin Panel
+                        </a>
+
+                        <a href="{{ route('admin.users') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.users') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
+                            <i class="fas fa-users-cog mr-4 text-lg"></i> Manage Users
+                        </a>
+                    </div>
+                @endif
             </nav>
+
             <div class="pt-6 border-t border-slate-100">
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf

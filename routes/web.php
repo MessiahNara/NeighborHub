@@ -53,8 +53,14 @@ Route::middleware(['auth', 'verified', IsAdmin::class])->prefix('admin')->name('
     // Admin Dashboard View
     Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
     
+    // Manage Users View
+    Route::get('/users', [AdminController::class, 'users'])->name('users');
+    
     // Ban/Unban Users
     Route::post('/users/{user}/toggle-ban', [AdminController::class, 'toggleBan'])->name('users.toggleBan');
+    
+    // Promote User to Admin
+    Route::post('/users/{user}/promote', [AdminController::class, 'promote'])->name('users.promote');
     
     // Admin Post Deletion
     Route::delete('/posts/{post}', [AdminController::class, 'deletePost'])->name('posts.destroy');

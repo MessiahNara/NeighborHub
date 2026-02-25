@@ -25,6 +25,12 @@
                 </a>
             </div>
 
+            @if(session('error'))
+                <div class="mx-8 mt-6 bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-3 shadow-sm text-xs font-bold uppercase tracking-widest">
+                    <i class="fas fa-exclamation-circle mr-1"></i> {{ session('error') }}
+                </div>
+            @endif
+
             <form method="POST" action="{{ route('login') }}" class="p-8 space-y-6">
                 @csrf
                 <div>

@@ -5,12 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Post;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 
 class AdminController extends Controller
 {
     public function index()
     {
-        // Gather stats for the dashboard graphs and overviews
         $stats = [
             'total_users' => User::count(),
             'total_posts' => Post::count(),
@@ -18,18 +18,23 @@ class AdminController extends Controller
             'total_requests' => Post::where('category', 'requests')->count(),
         ];
 
-        // Get users and recent posts for the data tables
-        $users = User::latest()->get();
+        // Only load recent posts for the dashboard table
         $recentPosts = Post::with('user')->latest()->take(10)->get();
 
-        // Prepare data for Chart.js (Posts by Category)
         $categories = ['buy-sell', 'borrow', 'events', 'services', 'places', 'announcements', 'complaints', 'requests'];
         $chartData = [];
         foreach ($categories as $cat) {
             $chartData[] = Post::where('category', $cat)->count();
         }
 
-        return view('admin.dashboard', compact('stats', 'users', 'recentPosts', 'chartData', 'categories'));
+        return view('admin.dashboard', compact('stats', 'recentPosts', 'chartData', 'categories'));
+    }
+
+    // New method for the dedicated Users Tab
+    public function users()
+    {
+        $users = User::latest()->get();
+        return view('admin.users', compact('users'));
     }
 
     public function toggleBan(User $user)
@@ -45,16 +50,29 @@ class AdminController extends Controller
         return back()->with('success', "User has been {$status}.");
     }
 
+    // New method to promote users to admin
+    public function promote(User $user)
+    {
+        if ($user->role === 'admin') {
+            return back()->with('error', 'User is already an admin.');
+        }
+
+        $user->role = 'admin';
+        $user->is_banned = false; // Ensure they aren't banned if promoted
+        $user->save();
+
+        return back()->with('success', "{$user->name} has been promoted to Admin.");
+    }
+
     public function deletePost(Post $post)
     {
-        // Delete image logic if exists (same as your DashboardController)
         if ($post->image) {
             $images = is_array($post->image) ? $post->image : json_decode($post->image, true);
             if (is_array($images)) {
                 foreach ($images as $img) {
                     $filePath = public_path('uploads/' . $img);
-                    if (\Illuminate\Support\Facades\File::exists($filePath)) {
-                        \Illuminate\Support\Facades\File::delete($filePath);
+                    if (File::exists($filePath)) {
+                        File::delete($filePath);
                     }
                 }
             }

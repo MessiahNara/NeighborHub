@@ -81,11 +81,6 @@ class DashboardController extends Controller
             if (Auth::user()->role !== 'admin') {
                 $query->where('user_id', Auth::id());
             }
-        } else {
-            // NEW: "My Posts" Filter for public categories (Buy & Sell, Borrow, Services)
-            if ($request->filled('my_posts') && $request->my_posts == '1') {
-                $query->where('user_id', Auth::id());
-            }
         }
 
         // Search by title if the user typed in the search bar
