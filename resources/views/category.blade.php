@@ -369,18 +369,18 @@
                     <div class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl"><i class="fas fa-user-circle"></i></div>
                     <div>
                         <p id="detUser" class="text-lg font-black text-slate-800 leading-none mb-1"></p>
-                        <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest"></p>
+                        <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1"></p>
                     </div>
                 </div>
 
-                <h2 id="detTitle" class="text-5xl font-black tracking-tighter leading-none text-slate-800 mb-4 uppercase"></h2>
+                <div id="detTitleContainer" class="mb-6"></div>
                 
                 <div class="flex flex-wrap items-center gap-3 mb-6">
-                    <div id="detPrice" class="text-3xl font-black text-[#36B3C9]"></div>
+                    <div id="detPrice" class="w-full"></div>
                     <div id="detTagsContainer" class="flex gap-2"></div> 
                 </div>
 
-                <p id="detDesc" class="text-slate-500 text-lg leading-relaxed mb-12 whitespace-pre-wrap font-medium"></p>
+                <div id="detDesc" class="bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100 hidden"></div>
 
                 <div id="adminAppointmentControls"></div>
 
@@ -436,27 +436,30 @@
             fetch(`/api/post/${id}`)
                 .then(r => r.json())
                 .then(d => {
-                    document.getElementById('detTitle').innerText = d.title;
-                    document.getElementById('detDesc').innerText = d.description || 'No description provided.';
+                    // Populate Description Block 
+                    const descEl = document.getElementById('detDesc');
+                    if (d.description) {
+                        descEl.innerText = d.description;
+                        descEl.classList.remove('hidden');
+                    } else {
+                        descEl.classList.add('hidden');
+                    }
+                    
                     document.getElementById('detUser').innerText = d.user ? d.user.name : 'Neighbor';
                     document.getElementById('detDate').innerText = new Date(d.created_at).toLocaleDateString();
                     
+                    const titleContainer = document.getElementById('detTitleContainer');
                     const priceEl = document.getElementById('detPrice');
                     const isBuySell = (d.category.includes('buy') && d.category.includes('sell')); 
                     const adminControls = document.getElementById('adminAppointmentControls');
                     const userRole = "{{ Auth::user()->role }}";
 
-                    // THE FIX FOR TAGS IN MODAL: Check for JSON string
+                    // Tags Logic
                     const tagContainer = document.getElementById('detTagsContainer');
                     tagContainer.innerHTML = '';
                     if(d.tags) {
                         let tagsArray = [];
-                        try {
-                            tagsArray = typeof d.tags === 'string' ? JSON.parse(d.tags) : d.tags;
-                        } catch(e) {
-                            tagsArray = [d.tags];
-                        }
-                        
+                        try { tagsArray = typeof d.tags === 'string' ? JSON.parse(d.tags) : d.tags; } catch(e) { tagsArray = [d.tags]; }
                         if(Array.isArray(tagsArray)) {
                             tagsArray.forEach(t => {
                                 const badge = document.createElement('div');
@@ -467,68 +470,110 @@
                         }
                     }
 
-                    // --- APPOINTMENT LOGIC FOR REQUESTS ---
-                    if (d.category === 'requests') {
-                        const statusColors = { 'pending': 'text-yellow-500', 'approved': 'text-green-500', 'completed': 'text-blue-500', 'rejected': 'text-red-500' };
-                        const sColor = statusColors[d.status || 'pending'] || 'text-slate-500';
-                        document.getElementById('detTitle').innerHTML = `${d.title} <span class="text-sm align-middle ${sColor} bg-slate-50 px-3 py-1 rounded-xl block mt-2 w-max">Status: ${(d.status || 'pending').toUpperCase()}</span>`;
+                    // --- THE FIX: APPOINTMENT UI & DATE PARSING LOGIC ---
+                    if (d.category === 'requests' || d.category === 'complaints') {
+                        // 1. Beautiful Title and Status Badge
+                        const statusColors = { 
+                            'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200', 
+                            'approved': 'bg-green-100 text-green-700 border-green-200', 
+                            'completed': 'bg-blue-100 text-blue-700 border-blue-200', 
+                            'rejected': 'bg-red-100 text-red-700 border-red-200' 
+                        };
+                        const sColor = statusColors[d.status || 'pending'] || 'bg-slate-100 text-slate-700 border-slate-200';
                         
-                        // Show Appointment Date to User if set, otherwise tell them to wait
+                        titleContainer.innerHTML = `
+                            <div class="flex flex-col items-start gap-4">
+                                <h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>
+                                <span class="px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border shadow-sm ${sColor}">
+                                    Status: ${(d.status || 'pending')}
+                                </span>
+                            </div>
+                        `;
+                        
+                        // 2. Scheduled Date Info Block
                         if(d.event_date) {
                             const eventDate = new Date(d.event_date).toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
-                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Scheduled For:</span><span class="text-[#36B3C9] text-xl">${eventDate}</span>`;
+                            const dateLabel = d.status === 'rejected' ? 'Previously Scheduled Date / Actioned On' : 'Scheduled For';
+                            priceEl.innerHTML = `
+                                <div class="bg-slate-50 border border-slate-100 p-5 rounded-[1.5rem] w-full mt-2">
+                                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">${dateLabel}</span>
+                                    <span class="text-[#36B3C9] text-xl font-black tracking-tight">${eventDate}</span>
+                                </div>
+                            `;
                         } else {
-                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1 bg-yellow-50 text-yellow-600 px-3 py-2 rounded-lg"><i class="fas fa-clock mr-1"></i> Waiting for Admin to set schedule</span>`;
+                            priceEl.innerHTML = `
+                                <div class="bg-yellow-50 border border-yellow-100 p-5 rounded-[1.5rem] w-full mt-2">
+                                    <span class="text-xs font-black text-yellow-600 uppercase tracking-widest flex items-center gap-2">
+                                        <i class="fas fa-clock text-lg"></i> Waiting for Admin to set schedule
+                                    </span>
+                                </div>
+                            `;
                         }
 
-                        // Show Scheduling Panel to ADMIN ONLY
+                        // 3. Admin Panel with foolproof date parsing!
                         if (userRole === 'admin') {
-                            const rawDate = d.event_date ? d.event_date.replace(' ', 'T').slice(0, 16) : ''; 
+                            let rawDate = '';
+                            if (d.event_date) {
+                                // This precisely converts the database timestamp to HTML datetime-local format
+                                const dt = new Date(d.event_date);
+                                if (!isNaN(dt.getTime())) {
+                                    const yyyy = dt.getFullYear();
+                                    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+                                    const dd = String(dt.getDate()).padStart(2, '0');
+                                    const hh = String(dt.getHours()).padStart(2, '0');
+                                    const min = String(dt.getMinutes()).padStart(2, '0');
+                                    rawDate = `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+                                }
+                            }
                             
                             adminControls.innerHTML = `
-                                <form action="/post/${d.id}/status" method="POST" class="mt-6 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 animate-pop">
+                                <form action="/post/${d.id}/status" method="POST" class="mt-6 p-8 bg-white shadow-xl shadow-slate-200/50 rounded-[2.5rem] border border-slate-100 animate-pop">
                                     <input type="hidden" name="_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="_method" value="PATCH">
-                                    <h4 class="font-black uppercase text-sm mb-4 text-[#36B3C9]"><i class="fas fa-calendar-check mr-2"></i>Admin: Manage Appointment</h4>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label class="text-[10px] font-bold text-slate-400 uppercase block mb-2">Update Status</label>
-                                            <select name="status" class="w-full p-4 rounded-xl border-none bg-white shadow-sm font-bold text-sm text-slate-700 focus:ring-[#36B3C9]/20">
+                                    <h4 class="font-black uppercase text-sm mb-6 text-[#36B3C9] flex items-center gap-2"><i class="fas fa-calendar-check text-lg"></i> Admin: Manage Appointment</h4>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div class="bg-slate-50 p-4 rounded-[1.5rem]">
+                                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Update Status</label>
+                                            <select name="status" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
                                                 <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending Review</option>
                                                 <option value="approved" ${d.status === 'approved' ? 'selected' : ''}>Approved / Scheduled</option>
                                                 <option value="completed" ${d.status === 'completed' ? 'selected' : ''}>Completed</option>
                                                 <option value="rejected" ${d.status === 'rejected' ? 'selected' : ''}>Rejected</option>
                                             </select>
                                         </div>
-                                        <div>
-                                            <label class="text-[10px] font-bold text-slate-400 uppercase block mb-2">Set/Change Date & Time</label>
-                                            <input type="datetime-local" name="event_date" value="${rawDate}" class="w-full p-4 rounded-xl border-none bg-white shadow-sm font-bold text-sm text-slate-700 focus:ring-[#36B3C9]/20">
+                                        <div class="bg-slate-50 p-4 rounded-[1.5rem]">
+                                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Set Date & Time</label>
+                                            <input type="datetime-local" name="event_date" value="${rawDate}" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
                                         </div>
                                     </div>
-                                    <button type="submit" class="mt-4 w-full bg-slate-800 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] shadow-md hover:bg-slate-700 transition">Update Appointment</button>
+                                    <button type="submit" class="mt-6 w-full bg-slate-800 text-white font-black py-4 rounded-[1.5rem] uppercase tracking-widest text-[10px] shadow-lg hover:bg-slate-700 transition active:scale-95">Update Appointment</button>
                                 </form>
                             `;
                         } else { adminControls.innerHTML = ''; }
                     } else {
-                        // Regular Post Display
+                        // Regular Post Display (Buy/Sell, Events, Places)
                         adminControls.innerHTML = '';
+                        titleContainer.innerHTML = `<h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>`;
+                        
                         if(d.category === 'events' && d.event_date) {
-                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span>${new Date(d.event_date).toLocaleDateString()}`;
+                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${new Date(d.event_date).toLocaleDateString()}</span>`;
                         } else if(isBuySell) {
-                            priceEl.innerText = d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer';
-                        } else { priceEl.innerText = ''; }
+                            priceEl.innerHTML = `<span class="text-3xl font-black text-[#36B3C9]">${d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer'}</span>`;
+                        } else { priceEl.innerHTML = ''; }
                     }
 
                     // Setup Contact & Delete buttons
                     const contactArea = document.getElementById('contactButtonContainer');
-                    if(isBuySell || d.category === 'borrow' || d.category === 'services') { contactArea.innerHTML = `<a href="#" class="w-full bg-[#36B3C9] text-white font-black py-5 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message</a>`; } else { contactArea.innerHTML = ''; }
+                    if(isBuySell || d.category === 'borrow' || d.category === 'services') { contactArea.innerHTML = `<a href="#" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message</a>`; } else { contactArea.innerHTML = ''; }
                     const deleteArea = document.getElementById('detDeleteContainer');
-                    if(userRole === 'admin' || {{ Auth::id() }} === d.user_id) { deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove Post</button>`; } else { deleteArea.innerHTML = ''; }
+                    if(userRole === 'admin' || {{ Auth::id() }} === d.user_id) { deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`; } else { deleteArea.innerHTML = ''; }
 
                     // Images
                     const imgSection = document.getElementById('detailImageSection'); const imgContainer = document.getElementById('detImg');
                     let images = []; try { images = Array.isArray(d.image) ? d.image : (d.image ? JSON.parse(d.image) : []); } catch(e) { images = []; }
                     if (images.length > 0) { imgSection.classList.remove('hidden'); imgContainer.innerHTML = images.map(img => `<div class="w-full h-full flex-shrink-0 snap-center flex items-center justify-center bg-black"><img src="/uploads/${img}" class="max-w-full max-h-full object-contain"></div>`).join(''); totalImgs = images.length; currentIdx = 0; if(totalImgs <= 1) { document.getElementById('prevBtn').classList.add('hidden'); document.getElementById('nextBtn').classList.add('hidden'); } else { document.getElementById('prevBtn').classList.remove('hidden'); document.getElementById('nextBtn').classList.remove('hidden'); } } else { imgSection.classList.add('hidden'); }
+                    
                     if (document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal');
                 });
         }
@@ -536,7 +581,7 @@
         function triggerDelete(id) { document.getElementById('deleteForm').action = `/post/${id}`; if(!document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal'); toggleModal('deleteConfirmModal'); }
         function moveGallery(dir) { const c = document.getElementById('detImg'); currentIdx += dir; if (currentIdx < 0) currentIdx = totalImgs - 1; if (currentIdx >= totalImgs) currentIdx = 0; c.scrollTo({ left: c.clientWidth * currentIdx, behavior: 'smooth' }); }
         
-        // --- CALENDAR INITIALIZATION RESTORED HERE ---
+        // --- CALENDAR INITIALIZATION ---
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
@@ -553,7 +598,7 @@
         });
         @endif
 
-        // --- URL PARAMETER CHECKER TO AUTO-OPEN POSTS RESTORED HERE ---
+        // --- URL PARAMETER CHECKER TO AUTO-OPEN POSTS ---
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const postIdToOpen = urlParams.get('post');
