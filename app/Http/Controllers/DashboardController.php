@@ -31,25 +31,28 @@ class DashboardController extends Controller
             'requests'   => $isAdmin ? Post::where('category', 'requests')->count() : null,
         ];
 
-        // THE FIX: Start building the recent updates query
+        // Start building the recent updates query
         $recentUpdatesQuery = Post::with('user');
 
         if ($isAdmin) {
-            // Admins see everyone else's newest updates
-            $recentUpdatesQuery->where('user_id', '!=', $userId);
+            // Admins see everyone else's NEWEST posts. (Ordered by created_at)
+            // This prevents them from being notified about their own status updates!
+            $recentUpdatesQuery->where('user_id', '!=', $userId)
+                               ->orderBy('created_at', 'desc');
         } else {
-            // Regular users see: public posts from others OR status updates on their own requests!
+            // Regular users see: public posts from others OR status updates on their own requests.
+            // Ordered by updated_at so they see the Admin's response!
             $recentUpdatesQuery->where(function($query) use ($userId) {
                 $query->where('user_id', '!=', $userId)
                       ->whereNotIn('category', ['complaints', 'requests']);
             })->orWhere(function($query) use ($userId) {
                 $query->where('user_id', $userId)
                       ->whereIn('category', ['complaints', 'requests']);
-            });
+            })->orderBy('updated_at', 'desc');
         }
 
-        // Order by `updated_at` so when an Admin changes the status, it bumps to the top!
-        $recentUpdates = $recentUpdatesQuery->orderBy('updated_at', 'desc')->take(5)->get();
+        // Fetch the final 5 posts
+        $recentUpdates = $recentUpdatesQuery->take(5)->get();
 
         return view('dashboard', compact('counts', 'recentUpdates'));
     }
@@ -208,7 +211,7 @@ class DashboardController extends Controller
             'event_date' => $post->event_date,
             'tags' => $post->tags, 
             'category' => $post->category,
-            'status' => $post->status, // <-- ADDED: Passes status to the frontend
+            'status' => $post->status, 
             'created_at' => $post->created_at,
             'user' => $post->user,
             'image' => $post->image
