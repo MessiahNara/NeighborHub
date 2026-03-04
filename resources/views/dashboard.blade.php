@@ -175,7 +175,7 @@
                         const postCategory = msg.conversation.post.category;
                         const postId = msg.conversation.post.id;
                         url = `/category/${postCategory}?chat=${postId}`;
-                        postTitle = `Re: ${msg.conversation.post.title}`;
+                        postTitle = `Listing: ${msg.conversation.post.title}`;
                     }
 
                     html += `
