@@ -2,8 +2,9 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\AdminController; // Added AdminController
-use App\Http\Middleware\IsAdmin;          // Added IsAdmin Middleware
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\ChatController; 
+use App\Http\Middleware\IsAdmin;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Post;
@@ -34,7 +35,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/post', [DashboardController::class, 'store'])->name('post.store');
     Route::delete('/post/{id}', [DashboardController::class, 'destroy'])->name('post.destroy');
 
-    // NEW: Update Appointment Status (Admin Scheduling)
+    // Update Appointment Status (Admin Scheduling)
     Route::patch('/post/{id}/status', [DashboardController::class, 'updateStatus'])->name('post.updateStatus');
 
     // API for Popups (With User Name Fix)
@@ -46,6 +47,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    // --- NEW: CHAT & INBOX ROUTES ---
+    // These routes handle the background data for the floating chat box
+    Route::get('/api/chat/{post}', [ChatController::class, 'fetchMessages'])->name('api.chat.fetch');
+    Route::post('/api/chat/{post}', [ChatController::class, 'sendMessage'])->name('api.chat.send');
+    
+    // NEW: Background route for the slide-out category-specific inbox!
+    Route::get('/api/inbox', [ChatController::class, 'fetchInbox'])->name('api.chat.inbox');
+    
+    // Full-page Inbox Route (Kept just in case you ever want a main page for it)
+    Route::get('/inbox', [ChatController::class, 'index'])->name('chat.index');
 });
 
 // ADMIN ROUTES (Strictly for users with the 'admin' role)

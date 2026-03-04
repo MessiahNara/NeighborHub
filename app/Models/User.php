@@ -45,4 +45,25 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    // ----------------------------------------------------------------------
+    // CHAT SYSTEM RELATIONSHIPS
+    // ----------------------------------------------------------------------
+
+    /**
+     * Get all conversations the user is a part of (either as sender or receiver).
+     */
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class, 'sender_id')
+                    ->orWhere('receiver_id', $this->id);
+    }
+
+    /**
+     * Get all messages sent by this user.
+     */
+    public function messages()
+    {
+        return $this->hasMany(Message::class);
+    }
 }

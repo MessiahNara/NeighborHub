@@ -3,30 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
     <title>NeighborHub | {{ str_replace(['_', '-'], ' ', $type) }}</title>
-    <style> 
+    <style>
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         #detImg { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
         .animate-pop { animation: pop 0.4s cubic-bezier(0.26, 0.53, 0.74, 1.48); }
         @keyframes pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         
-        /* Calendar Customization */
         .fc { background: white; border-radius: 2.5rem; padding: 2rem; border: none !important; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); }
         .fc-toolbar-title { font-weight: 900 !important; text-transform: uppercase; color: #1e293b; font-size: 1.5rem !important; }
         .fc-button-primary { background-color: #36B3C9 !important; border: none !important; border-radius: 1rem !important; font-weight: bold !important; }
         .fc-daygrid-event { background-color: #36B3C9; border: none; border-radius: 6px; padding: 2px 6px; cursor: pointer; }
         .fc-day-today { background-color: #f1fbfd !important; border-radius: 1.5rem; }
-
-        /* Custom Multiple Select Styling */
         .tag-checkbox:checked + label { background-color: #36B3C9; color: white; border-color: #36B3C9; }
     </style>
 </head>
 
 @php
-    $normalizedType = str_replace('_', '-', $type); 
+    $normalizedType = str_replace('_', '-', $type);
     
     $isBuySell   = (str_contains($normalizedType, 'buy') && str_contains($normalizedType, 'sell'));
     $isBorrow    = ($normalizedType === 'borrow');
@@ -63,9 +63,24 @@
             }
         }
     }
+
+    // CALCULATE UNREAD MESSAGES FOR THE BADGE
+    $unreadCount = 0;
+    if (Auth::check()) {
+        $unreadCount = \App\Models\Message::where('is_read', false)
+            ->where('user_id', '!=', Auth::id())
+            ->whereHas('conversation', function($q) use ($type) {
+                $q->where(function($query) {
+                    $query->where('sender_id', Auth::id())
+                          ->orWhere('receiver_id', Auth::id());
+                })->whereHas('post', function($p) use ($type) {
+                    $p->where('category', $type);
+                });
+            })->count();
+    }
 @endphp
 
-<body class="bg-slate-50 font-sans antialiased min-h-screen text-slate-900">
+<body class="bg-slate-50 font-sans antialiased min-h-screen text-slate-900 overflow-x-hidden">
 
     <nav class="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-100 px-6 py-4">
         <div class="max-w-6xl mx-auto flex items-center gap-4">
@@ -76,7 +91,7 @@
             <form action="{{ url()->current() }}" method="GET" class="flex-1 flex gap-3">
                 <div class="relative flex-1 group">
                     <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 z-10"></i>
-                    <input type="text" name="search" id="searchInput" value="{{ request('search') }}" placeholder="Search in {{ str_replace(['_', '-'], ' ', $type) }}..." 
+                    <input type="text" name="search" id="searchInput" value="{{ request('search') }}" placeholder="Search in {{ str_replace(['_', '-'], ' ', $type) }}..."
                            class="w-full bg-slate-50 border-none rounded-2xl py-3.5 pl-14 pr-10 focus:ring-2 focus:ring-[#36B3C9]/20 transition font-bold text-sm placeholder:text-slate-300 shadow-sm">
                 </div>
 
@@ -115,11 +130,11 @@
 
             @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'requests', 'complaints']))
                 <div class="flex bg-slate-200/50 p-1 rounded-2xl">
-                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}" 
+                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}"
                        class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ !request('my_posts') ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
                         All
                     </a>
-                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => '1']) }}" 
+                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => '1']) }}"
                        class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ request('my_posts') == '1' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
                         My Posts
                     </a>
@@ -164,7 +179,6 @@
         <div class="relative z-10 {{ $useGrid ? 'grid grid-cols-2 md:grid-cols-4 gap-6' : 'space-y-4' }}" id="postsContainer">
             @forelse($posts as $post)
                 <div onclick="openDetail({{ $post->id }})" class="post-item cursor-pointer bg-white p-5 rounded-[2.5rem] border border-slate-50 shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group relative {{ !$useGrid ? 'flex justify-between items-center' : '' }}">
-                    
                     @if(!$useGrid)
                         <div class="flex items-center gap-6">
                             <div class="bg-slate-50 text-[#36B3C9] h-20 w-20 rounded-[1.8rem] flex items-center justify-center transition group-hover:bg-[#36B3C9] group-hover:text-white group-hover:rotate-6">
@@ -175,8 +189,8 @@
                                 
                                 @if($isRequest || $isComplaint)
                                     <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2
-                                        {{ ($post->status ?? 'pending') === 'approved' ? 'bg-green-100 text-green-600' : 
-                                           (($post->status ?? 'pending') === 'completed' ? 'bg-blue-100 text-blue-600' : 
+                                        {{ ($post->status ?? 'pending') === 'approved' ? 'bg-green-100 text-green-600' :
+                                           (($post->status ?? 'pending') === 'completed' ? 'bg-blue-100 text-blue-600' :
                                            (($post->status ?? 'pending') === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600')) }}">
                                         {{ $post->status ?? 'Pending' }}
                                     </span>
@@ -248,6 +262,29 @@
                         </button>
                     @endif
                 </div>
+
+                @if(auth()->check() && auth()->id() !== $post->user_id)
+                <div id="chatBox-{{ $post->id }}" class="hidden fixed bottom-0 right-32 sm:right-40 w-80 bg-white border border-slate-200 shadow-2xl rounded-t-2xl flex-col z-[200]">
+                    <div class="bg-[#36B3C9] text-white p-4 rounded-t-2xl flex justify-between items-center cursor-pointer shadow-sm" onclick="toggleChatBody({{ $post->id }})">
+                        <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> {{ $post->title }}</span>
+                        <button onclick="closeChatBox({{ $post->id }}, event)" class="text-white hover:text-slate-200 text-lg leading-none transition">&times;</button>
+                    </div>
+                    <div id="chatBody-{{ $post->id }}" class="flex flex-col">
+                        <div id="chatMessages-{{ $post->id }}" class="h-64 overflow-y-auto p-4 bg-slate-50 flex flex-col gap-2">
+                            <div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Loading messages...</div>
+                        </div>
+                        <div class="p-3 border-t border-slate-100 bg-white">
+                            <form onsubmit="sendChatMessage(event, {{ $post->id }})" class="flex gap-2">
+                                <input type="text" id="chatInput-{{ $post->id }}" class="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-[#36B3C9] focus:ring-1 focus:ring-[#36B3C9] placeholder:text-slate-300 transition" placeholder="Write a message..." required autocomplete="off">
+                                <button type="submit" class="bg-[#36B3C9] text-white w-10 h-10 flex items-center justify-center rounded-2xl font-bold hover:brightness-110 active:scale-95 transition shadow-md shadow-cyan-100">
+                                    <i class="fas fa-paper-plane text-xs"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                @endif
+                
             @empty
                 <div class="col-span-full py-32 text-center">
                     <div class="bg-white inline-flex items-center justify-center w-24 h-24 rounded-[2.5rem] shadow-sm mb-6 text-slate-200">
@@ -266,18 +303,13 @@
             @if($isComplaint)
                 <h2 class="text-3xl font-black mb-1 uppercase tracking-tighter text-[#36B3C9]">File a Complaint</h2>
                 <p class="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-8">This report is strictly confidential to admins.</p>
-                
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" enctype="multipart/form-data" class="space-y-5">
-                    @csrf 
-                    <input type="hidden" name="category" value="{{ $type }}">
-                    
+                    @csrf <input type="hidden" name="category" value="{{ $type }}">
                     <input type="text" name="title" placeholder="Nature of Complaint (e.g. Noise Disturbance)" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
-                    
                     <div class="bg-slate-50 p-5 rounded-[1.5rem]">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Date of Incident</label>
                         <input type="date" name="event_date" class="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-slate-800" required>
                     </div>
-
                     @if(!empty($availableTags))
                         <div>
                             <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Complaint Category</label>
@@ -285,26 +317,21 @@
                                 @foreach($availableTags as $tag)
                                     <div class="relative">
                                         <input type="checkbox" name="tags[]" value="{{ $tag }}" id="tag_{{ $tag }}" class="hidden tag-checkbox">
-                                        <label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer transition border border-transparent hover:bg-slate-100">
-                                            {{ $tag }}
-                                        </label>
+                                        <label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer transition border border-transparent hover:bg-slate-100">{{ $tag }}</label>
                                     </div>
                                 @endforeach
                             </div>
                         </div>
                     @endif
-
                     <textarea name="description" placeholder="Provide full details: Who was involved? Where did it happen? What exactly occurred?" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 placeholder:text-slate-300 min-h-[140px]" rows="4" required></textarea>
 
             @elseif($isRequest)
                 <h2 id="requestModalTitle" class="text-3xl font-black mb-1 uppercase tracking-tighter text-[#36B3C9]">Request a File</h2>
                 <p class="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-8">Admin will schedule your pickup date once approved.</p>
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" onsubmit="prepareRequestDescription()" enctype="multipart/form-data" class="space-y-5">
-                    @csrf 
-                    <input type="hidden" name="category" value="{{ $type }}">
+                    @csrf <input type="hidden" name="category" value="{{ $type }}">
                     <input type="hidden" name="title" id="requestDocType">
                     <input type="hidden" name="description" id="requestActualDesc">
-                    
                     <input type="text" id="reqName" placeholder="Full Legal Name" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
                     <input type="text" id="reqAddress" placeholder="Complete Home Address" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
                     <textarea id="reqPurpose" placeholder="Reason / Purpose for requesting this document" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 placeholder:text-slate-300 min-h-[120px]" rows="3" required></textarea>
@@ -312,12 +339,9 @@
             @else
                 <h2 class="text-3xl font-black mb-1 uppercase tracking-tighter text-[#36B3C9]">New Listing</h2>
                 <p class="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-8">Category: {{ str_replace(['_', '-'], ' ', $type) }}</p>
-                
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" enctype="multipart/form-data" class="space-y-5">
-                    @csrf 
-                    <input type="hidden" name="category" value="{{ $type }}">
+                    @csrf <input type="hidden" name="category" value="{{ $type }}">
                     <input type="text" name="title" placeholder="Item Name / Title" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
-
                     @if(!empty($availableTags))
                         <div>
                             <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Tags (Select Multiple)</label>
@@ -325,29 +349,24 @@
                                 @foreach($availableTags as $tag)
                                     <div class="relative">
                                         <input type="checkbox" name="tags[]" value="{{ $tag }}" id="tag_{{ $tag }}" class="hidden tag-checkbox">
-                                        <label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer transition border border-transparent hover:bg-slate-100">
-                                            {{ $tag }}
-                                        </label>
+                                        <label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer transition border border-transparent hover:bg-slate-100">{{ $tag }}</label>
                                     </div>
                                 @endforeach
                             </div>
                         </div>
                     @endif
-
                     @if($isEvent)
                         <div class="bg-slate-50 p-5 rounded-[1.5rem]">
                             <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-2">Event Date</label>
                             <input type="date" name="event_date" class="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-slate-800" required>
                         </div>
                     @endif
-
                     @if($isBuySell) 
                         <div class="relative">
                             <span class="absolute left-5 top-5 text-slate-300 font-black">₱</span>
                             <input type="number" name="price" step="0.01" placeholder="Price (Leave blank for Free)" class="w-full p-5 pl-10 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300">
                         </div>
                     @endif
-
                     <textarea name="description" placeholder="Description & Details..." class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 placeholder:text-slate-300 min-h-[140px]" rows="3"></textarea>
             @endif
 
@@ -383,18 +402,13 @@
                         <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1"></p>
                     </div>
                 </div>
-
                 <div id="detTitleContainer" class="mb-6"></div>
-                
                 <div class="flex flex-wrap items-center gap-3 mb-6">
                     <div id="detPrice" class="w-full"></div>
                     <div id="detTagsContainer" class="flex gap-2"></div> 
                 </div>
-
                 <div id="detDesc" class="bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100 hidden"></div>
-
                 <div id="adminAppointmentControls"></div>
-
                 <div class="grid grid-cols-2 gap-4 mt-8">
                     <div id="contactButtonContainer"></div>
                     <div id="detDeleteContainer"></div>
@@ -415,18 +429,43 @@
         </div>
     </div>
 
+    @if($isBuySell || $isBorrow || $normalizedType === 'services')
+        <div id="inboxPanel" class="fixed inset-y-0 right-0 z-[250] w-80 sm:w-96 bg-white shadow-2xl transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col border-l border-slate-100">
+            <div class="bg-[#36B3C9] p-6 text-white flex justify-between items-center">
+                <h2 class="font-black uppercase tracking-widest text-sm"><i class="fas fa-inbox mr-2"></i> Messages</h2>
+                <button onclick="toggleInboxPanel()" class="text-white hover:text-slate-200 text-xl transition"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="inboxContent" class="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-3">
+                <div class="text-center text-xs font-bold text-slate-400 mt-10">Loading messages...</div>
+            </div>
+        </div>
+
+        <button onclick="toggleInboxPanel()" class="fixed bottom-10 right-10 z-[90] bg-[#36B3C9] text-white w-20 h-20 rounded-full flex items-center justify-center shadow-2xl shadow-cyan-300/50 hover:-translate-y-2 hover:brightness-110 active:scale-95 transition-all duration-300 group">
+            
+            <i class="fas fa-comment-dots text-4xl"></i>
+            
+            <div id="unreadBadge" class="{{ $unreadCount > 0 ? '' : 'hidden' }} absolute top-0 right-0 bg-red-500 text-white text-xs font-black px-2.5 py-1 rounded-full shadow-md border-[3px] border-slate-50 min-w-[28px]">
+                {{ $unreadCount }}
+            </div>
+
+            <span class="absolute right-24 bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg">
+                Messages
+            </span>
+        </button>
+    @endif
+
     <script>
         let currentIdx = 0; let totalImgs = 0; let selectedFiles = [];
 
-        function toggleModal(id) { 
-            const modal = document.getElementById(id); modal.classList.toggle('hidden'); 
+        function toggleModal(id) {
+            const modal = document.getElementById(id); modal.classList.toggle('hidden');
             if(id === 'addModal' && modal.classList.contains('hidden')) resetUploadForm();
         }
 
         function openRequestModal(docType) {
             document.getElementById('requestModalTitle').innerText = 'Request: ' + docType;
             document.getElementById('requestDocType').value = docType;
-            toggleModal('addModal'); 
+            toggleModal('addModal');
         }
 
         function prepareRequestDescription() {
@@ -447,29 +486,24 @@
             fetch(`/api/post/${id}`)
                 .then(r => r.json())
                 .then(d => {
-                    // --- 1. THE FIX: BULLETPROOF MANUAL PARSING ---
                     let displayDateTime = null;
                     let inputDateTime = '';
 
                     if (d.event_date) {
-                        // Handle formatting variations safely ("2026-02-26 14:30:00" or "2026-02-26T14:30:00.000000Z")
                         let cleanStr = d.event_date.replace('T', ' ').split('.')[0].replace('Z', '');
                         let parts = cleanStr.split(/[- :]/);
-                        
+                       
                         if (parts.length >= 5) {
                             let year = parts[0], month = parts[1], day = parts[2], hour = parts[3], min = parts[4];
-                            
-                            // Manual Date assembly (Note: JS months are 0-indexed)
                             let localDate = new Date(year, month - 1, day, hour, min);
-                            
-                            displayDateTime = localDate.toLocaleString(undefined, { 
-                                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', 
-                                hour: '2-digit', minute: '2-digit' 
+                           
+                            displayDateTime = localDate.toLocaleString(undefined, {
+                                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+                                hour: '2-digit', minute: '2-digit'
                             });
 
                             inputDateTime = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
                         } else if (parts.length >= 3) {
-                            // If it's a date-only somehow
                             let year = parts[0], month = parts[1], day = parts[2];
                             let localDate = new Date(year, month - 1, day);
                             displayDateTime = localDate.toLocaleDateString();
@@ -490,7 +524,7 @@
                                 else if (line.startsWith('Purpose for Request:')) isPurpose = true;
                                 else if (isPurpose) purpose += line + '\n';
                             });
-                            
+                           
                             descEl.className = "mb-8";
                             descEl.innerHTML = `
                                 <div class="bg-slate-50 border border-slate-100 rounded-[2rem] p-8">
@@ -521,15 +555,16 @@
                     } else {
                         descEl.classList.add('hidden');
                     }
-                    
+                   
                     document.getElementById('detUser').innerText = d.user ? d.user.name : 'Neighbor';
                     document.getElementById('detDate').innerText = new Date(d.created_at).toLocaleDateString();
-                    
+                   
                     const titleContainer = document.getElementById('detTitleContainer');
                     const priceEl = document.getElementById('detPrice');
-                    const isBuySell = (d.category.includes('buy') && d.category.includes('sell')); 
+                    const isBuySell = (d.category.includes('buy') && d.category.includes('sell'));
                     const adminControls = document.getElementById('adminAppointmentControls');
-                    const userRole = "{{ Auth::user()->role }}";
+                    const userRole = "{{ Auth::user()->role ?? '' }}";
+                    const currentUserId = {{ Auth::id() ?? 'null' }};
 
                     const tagContainer = document.getElementById('detTagsContainer');
                     tagContainer.innerHTML = '';
@@ -547,11 +582,11 @@
                     }
 
                     if (d.category === 'requests' || d.category === 'complaints') {
-                        const statusColors = { 
-                            'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200', 
-                            'approved': 'bg-green-100 text-green-700 border-green-200', 
-                            'completed': 'bg-blue-100 text-blue-700 border-blue-200', 
-                            'rejected': 'bg-red-100 text-red-700 border-red-200' 
+                        const statusColors = {
+                            'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+                            'approved': 'bg-green-100 text-green-700 border-green-200',
+                            'completed': 'bg-blue-100 text-blue-700 border-blue-200',
+                            'rejected': 'bg-red-100 text-red-700 border-red-200'
                         };
                         const statusIcons = {
                             'pending': 'fa-hourglass-half',
@@ -559,10 +594,10 @@
                             'completed': 'fa-flag-checkered',
                             'rejected': 'fa-times-circle'
                         };
-                        
+                       
                         const sColor = statusColors[d.status || 'pending'] || 'bg-slate-100 text-slate-700 border-slate-200';
                         const sIcon = statusIcons[d.status || 'pending'] || 'fa-info-circle';
-                        
+                       
                         titleContainer.innerHTML = `
                             <div class="flex flex-col items-start gap-4">
                                 <h2 class="text-4xl md:text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>
@@ -571,7 +606,7 @@
                                 </span>
                             </div>
                         `;
-                        
+                       
                         if(displayDateTime) {
                             const dateLabel = d.status === 'rejected' ? 'Actioned On' : 'Scheduled For';
                             priceEl.innerHTML = `
@@ -596,7 +631,7 @@
                                     <input type="hidden" name="_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="_method" value="PATCH">
                                     <h4 class="font-black uppercase text-sm mb-6 text-[#36B3C9] flex items-center gap-2"><i class="fas fa-calendar-check text-lg"></i> Admin: Manage Appointment</h4>
-                                    
+                                   
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div class="bg-slate-50 p-4 rounded-[1.5rem]">
                                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Update Status</label>
@@ -620,7 +655,7 @@
                         // Regular Post Display (Buy/Sell, Events, Places)
                         adminControls.innerHTML = '';
                         titleContainer.innerHTML = `<h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>`;
-                        
+                       
                         if(d.category === 'events' && d.event_date) {
                             priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${displayDateTime || new Date(d.event_date).toLocaleDateString()}</span>`;
                         } else if(isBuySell) {
@@ -630,22 +665,273 @@
 
                     // Setup Contact & Delete buttons
                     const contactArea = document.getElementById('contactButtonContainer');
-                    if(isBuySell || d.category === 'borrow' || d.category === 'services') { contactArea.innerHTML = `<a href="#" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message</a>`; } else { contactArea.innerHTML = ''; }
+                    if(isBuySell || d.category === 'borrow' || d.category === 'services') {
+                        if (currentUserId !== null && d.user_id !== currentUserId) {
+                            const safeTitle = d.title.replace(/['"]/g, '');
+                            contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
+                        } else {
+                            contactArea.innerHTML = '';
+                        }
+                    } else { contactArea.innerHTML = ''; }
+                   
                     const deleteArea = document.getElementById('detDeleteContainer');
-                    if(userRole === 'admin' || {{ Auth::id() }} === d.user_id) { deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`; } else { deleteArea.innerHTML = ''; }
+                    if(userRole === 'admin' || currentUserId === d.user_id) {
+                        deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`;
+                    } else { deleteArea.innerHTML = ''; }
 
                     // Images
                     const imgSection = document.getElementById('detailImageSection'); const imgContainer = document.getElementById('detImg');
                     let images = []; try { images = Array.isArray(d.image) ? d.image : (d.image ? JSON.parse(d.image) : []); } catch(e) { images = []; }
                     if (images.length > 0) { imgSection.classList.remove('hidden'); imgContainer.innerHTML = images.map(img => `<div class="w-full h-full flex-shrink-0 snap-center flex items-center justify-center bg-black"><img src="/uploads/${img}" class="max-w-full max-h-full object-contain"></div>`).join(''); totalImgs = images.length; currentIdx = 0; if(totalImgs <= 1) { document.getElementById('prevBtn').classList.add('hidden'); document.getElementById('nextBtn').classList.add('hidden'); } else { document.getElementById('prevBtn').classList.remove('hidden'); document.getElementById('nextBtn').classList.remove('hidden'); } } else { imgSection.classList.add('hidden'); }
-                    
+                   
                     if (document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal');
                 });
         }
-        
+       
         function triggerDelete(id) { document.getElementById('deleteForm').action = `/post/${id}`; if(!document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal'); toggleModal('deleteConfirmModal'); }
         function moveGallery(dir) { const c = document.getElementById('detImg'); currentIdx += dir; if (currentIdx < 0) currentIdx = totalImgs - 1; if (currentIdx >= totalImgs) currentIdx = 0; c.scrollTo({ left: c.clientWidth * currentIdx, behavior: 'smooth' }); }
+
+        // ==========================================
+        // FLOATING INBOX & CHAT SYSTEM JAVASCRIPT
+        // ==========================================
         
+        function getCsrfToken() {
+            return document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        }
+
+        function toggleInboxPanel() {
+            const panel = document.getElementById('inboxPanel');
+            if (panel) {
+                panel.classList.toggle('translate-x-full');
+                if (!panel.classList.contains('translate-x-full')) {
+                    loadInbox();
+                }
+            }
+        }
+
+        function loadInbox() {
+            const inboxContent = document.getElementById('inboxContent');
+            inboxContent.innerHTML = '<div class="text-center text-xs font-bold text-slate-400 mt-10">Loading messages...</div>';
+
+            fetch(`/api/inbox?category={{ $type }}`)
+                .then(r => r.json())
+                .then(conversations => {
+                    inboxContent.innerHTML = '';
+                    let unreadTotal = 0;
+
+                    if(conversations.length === 0) {
+                        inboxContent.innerHTML = `
+                            <div class="text-center mt-12 text-slate-400">
+                                <i class="fas fa-box-open text-4xl mb-4 text-slate-200"></i>
+                                <p class="text-xs font-black uppercase tracking-widest">No Messages Here</p>
+                                <p class="text-[10px] font-bold mt-2">Chat with a neighbor about a post to start.</p>
+                            </div>`;
+                    } else {
+                        conversations.forEach(conv => {
+                            const currentUserId = {{ Auth::id() ?? 'null' }};
+                            const otherUser = conv.sender_id === currentUserId ? conv.receiver : conv.sender;
+                            const lastMsg = conv.messages.length > 0 ? conv.messages[0] : null;
+                            const isUnread = lastMsg && lastMsg.user_id !== currentUserId && !lastMsg.is_read;
+                            
+                            if (isUnread) unreadTotal++;
+
+                            let msgText = lastMsg ? lastMsg.body : 'No messages yet.';
+                            let dateText = lastMsg ? new Date(lastMsg.created_at).toLocaleDateString() : '';
+                            let unreadClass = isUnread ? 'bg-white border-l-4 border-[#36B3C9] shadow-md' : 'bg-white border border-slate-100 hover:shadow-sm';
+                            let titleClass = isUnread ? 'text-[#36B3C9] font-black' : 'text-slate-700 font-bold';
+
+                            const safeTitle = conv.post ? conv.post.title.replace(/['"]/g, '') : 'Post';
+
+                            const html = `
+                                <div onclick="openChatFromInbox(${conv.post_id}, '${safeTitle}')" class="p-4 rounded-2xl cursor-pointer transition ${unreadClass}">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <span class="text-xs ${titleClass} truncate">${otherUser ? otherUser.name : 'Deleted User'}</span>
+                                        <span class="text-[9px] font-bold text-slate-300 ml-2 whitespace-nowrap">${dateText}</span>
+                                    </div>
+                                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate mb-1">
+                                        Listing: ${conv.post ? conv.post.title : 'Post'}
+                                    </div>
+                                    <p class="text-xs text-slate-500 truncate ${isUnread ? 'font-bold text-slate-700' : ''}">
+                                        ${lastMsg && lastMsg.user_id === currentUserId ? '<span class="text-slate-300">You: </span>' : ''}${msgText}
+                                    </p>
+                                </div>
+                            `;
+                            inboxContent.insertAdjacentHTML('beforeend', html);
+                        });
+                    }
+
+                    // Dynamically update the unread badge after loading inbox
+                    const badge = document.getElementById('unreadBadge');
+                    if (badge) {
+                        if (unreadTotal > 0) {
+                            badge.innerText = unreadTotal;
+                            badge.classList.remove('hidden');
+                        } else {
+                            badge.classList.add('hidden');
+                        }
+                    }
+                })
+                .catch(err => console.error("Error loading inbox:", err));
+        }
+
+        function openChatFromInbox(postId, postTitle) {
+            toggleInboxPanel();
+            openChatBox(postId, postTitle);
+        }
+
+        function openChatBox(postId, postTitle = 'Chat') {
+            const detailModal = document.getElementById('detailModal');
+            if(detailModal && !detailModal.classList.contains('hidden')) {
+                toggleModal('detailModal');
+            }
+
+            // NEW: Hide all currently open chat boxes so they don't overlap!
+            document.querySelectorAll('[id^="chatBox-"]').forEach(box => {
+                if (!box.classList.contains('hidden') && box.id !== 'chatBox-' + postId) {
+                    box.classList.add('hidden');
+                    box.classList.remove('flex');
+                }
+            });
+
+            let box = document.getElementById('chatBox-' + postId);
+            if(!box) {
+                const boxHtml = `
+                <div id="chatBox-${postId}" class="hidden fixed bottom-0 right-32 sm:right-40 w-80 bg-white border border-slate-200 shadow-2xl rounded-t-2xl flex-col z-[200]">
+                    <div class="bg-[#36B3C9] text-white p-4 rounded-t-2xl flex justify-between items-center cursor-pointer shadow-sm" onclick="toggleChatBody(${postId})">
+                        <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> ${postTitle}</span>
+                        <button onclick="closeChatBox(${postId}, event)" class="text-white hover:text-slate-200 text-lg leading-none transition">&times;</button>
+                    </div>
+                    <div id="chatBody-${postId}" class="flex flex-col">
+                        <div id="chatMessages-${postId}" class="h-64 overflow-y-auto p-4 bg-slate-50 flex flex-col gap-2">
+                            <div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Loading messages...</div>
+                        </div>
+                        <div class="p-3 border-t border-slate-100 bg-white">
+                            <form onsubmit="sendChatMessage(event, ${postId})" class="flex gap-2">
+                                <input type="text" id="chatInput-${postId}" class="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-[#36B3C9] focus:ring-1 focus:ring-[#36B3C9] placeholder:text-slate-300 transition" placeholder="Write a message..." required autocomplete="off">
+                                <button type="submit" class="bg-[#36B3C9] text-white w-10 h-10 flex items-center justify-center rounded-2xl font-bold hover:brightness-110 active:scale-95 transition shadow-md shadow-cyan-100">
+                                    <i class="fas fa-paper-plane text-xs"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>`;
+                document.body.insertAdjacentHTML('beforeend', boxHtml);
+                box = document.getElementById('chatBox-' + postId);
+            }
+
+            box.classList.remove('hidden');
+            box.classList.add('flex');
+            fetchMessages(postId);
+        }
+
+        function closeChatBox(postId, event) {
+            event.stopPropagation();
+            const box = document.getElementById('chatBox-' + postId);
+            if(box) {
+                box.classList.add('hidden');
+                box.classList.remove('flex');
+            }
+        }
+
+        function toggleChatBody(postId) {
+            const body = document.getElementById('chatBody-' + postId);
+            if(body) {
+                body.classList.toggle('hidden');
+            }
+        }
+
+        function fetchMessages(postId) {
+            fetch(`/api/chat/${postId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const messagesContainer = document.getElementById('chatMessages-' + postId);
+                    if(!messagesContainer) return;
+                   
+                    messagesContainer.innerHTML = '';
+                   
+                    if(data.messages.length === 0) {
+                        messagesContainer.innerHTML = '<div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Start the conversation!</div>';
+                    }
+
+                    data.messages.forEach(msg => {
+                        appendMessageToDOM(postId, msg, data.current_user_id);
+                    });
+                   
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+                    // When you open a chat, the unread messages are marked as read in the backend. 
+                    // Let's instantly reload the inbox badge in the background to reflect that!
+                    const inboxPanel = document.getElementById('inboxPanel');
+                    if (inboxPanel && !inboxPanel.classList.contains('translate-x-full')) {
+                        loadInbox();
+                    } else {
+                        // Quick background fetch just to update badge
+                        fetch(`/api/inbox?category={{ $type }}`)
+                            .then(r => r.json())
+                            .then(conversations => {
+                                let unreadTotal = 0;
+                                conversations.forEach(conv => {
+                                    const lastMsg = conv.messages.length > 0 ? conv.messages[0] : null;
+                                    if (lastMsg && lastMsg.user_id !== {{ Auth::id() ?? 'null' }} && !lastMsg.is_read) unreadTotal++;
+                                });
+                                const badge = document.getElementById('unreadBadge');
+                                if (badge) {
+                                    if (unreadTotal > 0) { badge.innerText = unreadTotal; badge.classList.remove('hidden'); } 
+                                    else { badge.classList.add('hidden'); }
+                                }
+                            });
+                    }
+                })
+                .catch(err => console.error("Error fetching messages:", err));
+        }
+
+        function sendChatMessage(event, postId) {
+            event.preventDefault();
+            const input = document.getElementById('chatInput-' + postId);
+            const body = input.value;
+            if (!body) return;
+
+            input.value = '';
+           
+            fetch(`/api/chat/${postId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': getCsrfToken()
+                },
+                body: JSON.stringify({ body: body })
+            })
+            .then(response => response.json())
+            .then(msg => {
+                appendMessageToDOM(postId, msg, msg.user_id);
+                const messagesContainer = document.getElementById('chatMessages-' + postId);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            })
+            .catch(err => console.error("Error sending message:", err));
+        }
+
+        function appendMessageToDOM(postId, msg, currentUserId) {
+            const messagesContainer = document.getElementById('chatMessages-' + postId);
+            if(!messagesContainer) return;
+           
+            if(messagesContainer.innerHTML.includes('Start the conversation')) {
+                messagesContainer.innerHTML = '';
+            }
+
+            const isMe = msg.user_id === currentUserId;
+            const alignClass = isMe ? 'justify-end' : 'justify-start';
+            const bgClass = isMe ? 'bg-[#36B3C9] text-white rounded-l-2xl rounded-tr-2xl' : 'bg-white border border-slate-200 text-slate-800 rounded-r-2xl rounded-tl-2xl';
+           
+            const messageHtml = `
+                <div class="flex ${alignClass} w-full my-1">
+                    <div class="max-w-[80%] ${bgClass} p-3 shadow-sm text-sm font-medium">
+                        ${msg.body}
+                    </div>
+                </div>
+            `;
+            messagesContainer.insertAdjacentHTML('beforeend', messageHtml);
+        }
+
         // --- CALENDAR INITIALIZATION ---
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
@@ -667,7 +953,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const postIdToOpen = urlParams.get('post');
-            
+           
             if (postIdToOpen) {
                 openDetail(postIdToOpen);
                 window.history.replaceState({}, document.title, window.location.pathname);
