@@ -34,14 +34,12 @@
     $isComplaint = ($normalizedType === 'complaints');
     $isRequest   = ($normalizedType === 'requests');
     
-    // Check if the current category is strictly for admins
     $adminOnlyCategories = ['events', 'places', 'announcements', 'announce', 'event'];
     $isAdminOnly = in_array($normalizedType, $adminOnlyCategories);
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
 
     $useGrid = ($isBuySell || $isBorrow || in_array($normalizedType, ['services', 'places']));
     
-    // --- 1. DEFINE TAGS HERE ---
     $availableTags = [];
     if($isBuySell) {
         $availableTags = ['Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Books', 'Tools', 'Appliances', 'Other'];
@@ -115,7 +113,7 @@
                 @endif
             </div>
 
-            @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services']))
+            @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'requests', 'complaints']))
                 <div class="flex bg-slate-200/50 p-1 rounded-2xl">
                     <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}" 
                        class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ !request('my_posts') ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
@@ -175,7 +173,7 @@
                             <div>
                                 <p class="font-black text-2xl text-slate-800 leading-tight mb-1 group-hover:text-[#36B3C9] transition">{{ $post->title }}</p>
                                 
-                                @if($isRequest)
+                                @if($isRequest || $isComplaint)
                                     <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2
                                         {{ ($post->status ?? 'pending') === 'approved' ? 'bg-green-100 text-green-600' : 
                                            (($post->status ?? 'pending') === 'completed' ? 'bg-blue-100 text-blue-600' : 
@@ -449,11 +447,40 @@
             fetch(`/api/post/${id}`)
                 .then(r => r.json())
                 .then(d => {
-                    // --- 1. THE FIX: BEAUTIFUL DESCRIPTION PARSING ---
+                    // --- 1. THE FIX: BULLETPROOF MANUAL PARSING ---
+                    let displayDateTime = null;
+                    let inputDateTime = '';
+
+                    if (d.event_date) {
+                        // Handle formatting variations safely ("2026-02-26 14:30:00" or "2026-02-26T14:30:00.000000Z")
+                        let cleanStr = d.event_date.replace('T', ' ').split('.')[0].replace('Z', '');
+                        let parts = cleanStr.split(/[- :]/);
+                        
+                        if (parts.length >= 5) {
+                            let year = parts[0], month = parts[1], day = parts[2], hour = parts[3], min = parts[4];
+                            
+                            // Manual Date assembly (Note: JS months are 0-indexed)
+                            let localDate = new Date(year, month - 1, day, hour, min);
+                            
+                            displayDateTime = localDate.toLocaleString(undefined, { 
+                                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', 
+                                hour: '2-digit', minute: '2-digit' 
+                            });
+
+                            inputDateTime = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+                        } else if (parts.length >= 3) {
+                            // If it's a date-only somehow
+                            let year = parts[0], month = parts[1], day = parts[2];
+                            let localDate = new Date(year, month - 1, day);
+                            displayDateTime = localDate.toLocaleDateString();
+                            inputDateTime = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00`;
+                        }
+                    }
+
+                    // --- Description Rendering ---
                     const descEl = document.getElementById('detDesc');
                     if (d.description) {
                         if (d.category === 'requests' && d.description.includes('Requester Name:')) {
-                            // Extract fields safely
                             const lines = d.description.split('\n');
                             let reqName = '', homeAddr = '', purpose = '';
                             let isPurpose = false;
@@ -464,7 +491,6 @@
                                 else if (isPurpose) purpose += line + '\n';
                             });
                             
-                            // Render as Modern Cards
                             descEl.className = "mb-8";
                             descEl.innerHTML = `
                                 <div class="bg-slate-50 border border-slate-100 rounded-[2rem] p-8">
@@ -488,7 +514,6 @@
                                 </div>
                             `;
                         } else {
-                            // Standard description layout
                             descEl.className = "bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100";
                             descEl.innerText = d.description;
                         }
@@ -506,7 +531,6 @@
                     const adminControls = document.getElementById('adminAppointmentControls');
                     const userRole = "{{ Auth::user()->role }}";
 
-                    // Tags Logic
                     const tagContainer = document.getElementById('detTagsContainer');
                     tagContainer.innerHTML = '';
                     if(d.tags) {
@@ -523,7 +547,6 @@
                     }
 
                     if (d.category === 'requests' || d.category === 'complaints') {
-                        // --- 2. THE FIX: BEAUTIFUL SPACED-OUT BADGES ---
                         const statusColors = { 
                             'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200', 
                             'approved': 'bg-green-100 text-green-700 border-green-200', 
@@ -549,15 +572,12 @@
                             </div>
                         `;
                         
-                        if(d.event_date) {
-                            // Let's use a nice display "Wednesday, February 25, 2026 at 08:00 AM"
-                            const eventDateObj = new Date(d.event_date.replace(' ', 'T'));
-                            const eventDate = isNaN(eventDateObj) ? d.event_date : eventDateObj.toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
+                        if(displayDateTime) {
                             const dateLabel = d.status === 'rejected' ? 'Actioned On' : 'Scheduled For';
                             priceEl.innerHTML = `
                                 <div class="bg-[#36B3C9]/10 border border-[#36B3C9]/20 p-5 rounded-[1.5rem] w-full mt-2">
                                     <span class="text-[10px] font-black text-[#36B3C9] uppercase tracking-widest block mb-1"><i class="fas fa-calendar-alt mr-1"></i> ${dateLabel}</span>
-                                    <span class="text-slate-800 text-lg font-black tracking-tight">${eventDate}</span>
+                                    <span class="text-slate-800 text-lg font-black tracking-tight">${displayDateTime}</span>
                                 </div>
                             `;
                         } else {
@@ -571,13 +591,6 @@
                         }
 
                         if (userRole === 'admin') {
-                            // --- 3. THE FIX: RELIABLE DATE PARSER FOR ADMIN INPUT ---
-                            let rawDate = '';
-                            if (d.event_date) {
-                                // This precisely converts "YYYY-MM-DD HH:MM:SS" from database to "YYYY-MM-DDThh:mm" for the HTML picker
-                                rawDate = d.event_date.replace(' ', 'T').substring(0, 16);
-                            }
-                            
                             adminControls.innerHTML = `
                                 <form action="/post/${d.id}/status" method="POST" class="mt-6 p-8 bg-white shadow-xl shadow-slate-200/50 rounded-[2.5rem] border border-slate-100 animate-pop">
                                     <input type="hidden" name="_token" value="{{ csrf_token() }}">
@@ -587,7 +600,7 @@
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div class="bg-slate-50 p-4 rounded-[1.5rem]">
                                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Update Status</label>
-                                            <select name="status" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
+                                            <select name="status" id="adminStatusSelect" onchange="toggleTimePicker(this.value)" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
                                                 <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending Review</option>
                                                 <option value="approved" ${d.status === 'approved' ? 'selected' : ''}>Approved / Scheduled</option>
                                                 <option value="completed" ${d.status === 'completed' ? 'selected' : ''}>Completed</option>
@@ -596,7 +609,7 @@
                                         </div>
                                         <div class="bg-slate-50 p-4 rounded-[1.5rem]">
                                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Set Date & Time</label>
-                                            <input type="datetime-local" name="event_date" value="${rawDate}" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
+                                            <input type="datetime-local" name="event_date" value="${inputDateTime}" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
                                         </div>
                                     </div>
                                     <button type="submit" class="mt-6 w-full bg-slate-800 text-white font-black py-4 rounded-[1.5rem] uppercase tracking-widest text-[10px] shadow-lg hover:bg-slate-700 transition active:scale-95">Update Appointment</button>
@@ -609,7 +622,7 @@
                         titleContainer.innerHTML = `<h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>`;
                         
                         if(d.category === 'events' && d.event_date) {
-                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${new Date(d.event_date).toLocaleDateString()}</span>`;
+                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${displayDateTime || new Date(d.event_date).toLocaleDateString()}</span>`;
                         } else if(isBuySell) {
                             priceEl.innerHTML = `<span class="text-3xl font-black text-[#36B3C9]">${d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer'}</span>`;
                         } else { priceEl.innerHTML = ''; }

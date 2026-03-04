@@ -17,7 +17,7 @@ return new class extends Migration
             
             // Ensure these columns are here:
             $table->decimal('price', 10, 2)->nullable();
-            $table->date('event_date')->nullable();
+            $table->datetime('event_date')->nullable();
             $table->string('tags')->nullable();
             $table->json('image')->nullable();
             

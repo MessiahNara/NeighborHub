@@ -23,7 +23,9 @@ class Post extends Model
 
     protected $casts = [
         'image' => 'array',
-        'tags'  => 'array', // Added this line
+        'tags'  => 'array', 
+        // 🛑 FIXED: This stops Laravel from erasing the time 🛑
+        'event_date' => 'datetime', 
     ];
 
     public function user()

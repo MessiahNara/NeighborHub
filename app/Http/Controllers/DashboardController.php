@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Post;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
@@ -83,6 +84,11 @@ class DashboardController extends Controller
             }
         }
 
+        // ---> FIXED: Filter for the "My Posts" tab <---
+        if ($request->filled('my_posts') && $request->my_posts == '1') {
+            $query->where('user_id', Auth::id());
+        }
+
         // Search by title if the user typed in the search bar
         if ($request->filled('search')) {
             $query->where('title', 'like', '%' . $request->search . '%');
@@ -161,7 +167,11 @@ class DashboardController extends Controller
         $post->status = $request->status;
         
         if ($request->filled('event_date')) {
-            $post->event_date = $request->event_date;
+            // ---> FIXED: Using Carbon to guarantee the exact datetime string is safely built <---
+            $post->event_date = Carbon::parse($request->event_date)->format('Y-m-d H:i:s');
+        } else {
+            // Allow admin to clear the date if rejected or pending
+            $post->event_date = null;
         }
 
         $post->save();
