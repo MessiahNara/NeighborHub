@@ -10,20 +10,16 @@ use Illuminate\Support\Facades\Auth;
 
 class ChatController extends Controller
 {
-    // --- MAGIC METHOD: FETCH CATEGORY-SPECIFIC INBOX ---
     public function fetchInbox(Request $request)
     {
         $user = Auth::user();
-        
-        // Grab the category from the URL (e.g., ?category=buy_sell)
         $category = $request->query('category');
 
         $query = Conversation::where(function($q) use ($user) {
             $q->where('sender_id', $user->id)
               ->orWhere('receiver_id', $user->id);
-        })->has('messages'); // <--- FIX: THIS COMPLETELY HIDES EMPTY CONVERSATIONS!
+        })->has('messages'); 
 
-        // If a category was passed, filter the posts by that category!
         if ($category) {
             $query->whereHas('post', function($q) use ($category) {
                 $q->where('category', $category);
@@ -31,16 +27,14 @@ class ChatController extends Controller
         }
 
         $conversations = $query->with(['post', 'sender', 'receiver', 'messages' => function($q) {
-            $q->latest(); // Get the latest message for the preview snippet
+            $q->latest(); 
         }])->get()->sortByDesc(function($conv) {
-            // Sort by most recent message
             return $conv->messages->first() ? $conv->messages->first()->created_at : $conv->created_at;
         })->values();
 
         return response()->json($conversations);
     }
 
-    // --- FETCH MESSAGES FOR A SPECIFIC CHAT POPUP ---
     public function fetchMessages(Post $post)
     {
         if ($post->user_id === Auth::id()) {
@@ -50,7 +44,11 @@ class ChatController extends Controller
                 ->first();
 
             if (!$conversation) {
-                return response()->json(['messages' => [], 'current_user_id' => Auth::id()]);
+                return response()->json([
+                    'messages' => [], 
+                    'current_user_id' => Auth::id(),
+                    'post_owner_id' => $post->user_id // <--- ADDED
+                ]);
             }
         } else {
             $conversation = Conversation::firstOrCreate([
@@ -60,18 +58,16 @@ class ChatController extends Controller
             ]);
         }
 
-        // Mark messages as read when the user opens the chat box
         $conversation->messages()->where('user_id', '!=', Auth::id())->update(['is_read' => true]);
-        
         $messages = $conversation->messages()->with('user:id,name')->get();
 
         return response()->json([
             'messages' => $messages,
-            'current_user_id' => Auth::id()
+            'current_user_id' => Auth::id(),
+            'post_owner_id' => $post->user_id // <--- ADDED
         ]);
     }
 
-    // --- SAVE A NEW MESSAGE ---
     public function sendMessage(Request $request, Post $post)
     {
         $request->validate(['body' => 'required|string']);
@@ -97,6 +93,9 @@ class ChatController extends Controller
             'body' => $request->body,
         ]);
 
-        return response()->json($message->load('user:id,name'));
+        return response()->json([
+            'message' => $message->load('user:id,name'),
+            'post_owner_id' => $post->user_id // <--- ADDED
+        ]);
     }
 }

@@ -122,9 +122,8 @@
         // 1. Get real data from Laravel
         const currentCounts = @json($counts);
         const recentUpdates = @json($recentUpdates ?? []); 
+        const chatNotifications = @json($chatNotifications ?? []); // <--- DATA FED FROM CONTROLLER
         const currentUserId = {{ Auth::id() }};
-        
-        // THE FIX: Check if the current user is an Admin in JavaScript
         const isAdmin = {{ Auth::user()->role === 'admin' ? 'true' : 'false' }};
         
         // 2. Configuration for "Identity" (Icons/Names)
@@ -139,7 +138,7 @@
             'requests':      { name: 'Requests',   icon: 'fa-file-signature' }
         };
 
-        // 3. Load saved state from LocalStorage
+        // 3. Load saved state from LocalStorage for standard posts
         let readNotifs = JSON.parse(localStorage.getItem('neighborhub_read_notifs')) || [];
         
         const badge = document.getElementById('notifBadge');
@@ -149,10 +148,56 @@
             let hasNew = false;
             let html = '';
 
+            // --- NEW: RENDER DB CHAT/OFFER NOTIFICATIONS FIRST (Most important!) ---
+            if (chatNotifications && chatNotifications.length > 0) {
+                hasNew = true; // DB Notifications are unread by definition in the controller query
+
+                chatNotifications.forEach(msg => {
+                    let iconClass = 'fa-comment-alt text-[#36B3C9] bg-[#36B3C9]/10';
+                    let mainText = `<strong>${msg.user.name}</strong> sent you a message.`;
+                    
+                    if(msg.body && msg.body.startsWith('[OFFER-')) {
+                        iconClass = 'fa-hand-holding-usd text-orange-500 bg-orange-50';
+                        let amount = msg.body.match(/^\[OFFER-(.+)\]$/)[1];
+                        mainText = `<strong>${msg.user.name}</strong> offered <strong>₱${amount}</strong>!`;
+                    } else if(msg.body && msg.body.startsWith('[ACCEPT-')) {
+                        iconClass = 'fa-check-circle text-green-500 bg-green-50';
+                        mainText = `<strong>${msg.user.name}</strong> accepted your offer!`;
+                    } else if(msg.body && msg.body.startsWith('[DECLINE-')) {
+                        iconClass = 'fa-times-circle text-red-500 bg-red-50';
+                        mainText = `<strong>${msg.user.name}</strong> declined your offer.`;
+                    }
+
+                    // Link to the post category so they can click and open the chat
+                    let url = '#';
+                    let postTitle = 'Direct Message';
+                    if (msg.conversation && msg.conversation.post) {
+                        const postCategory = msg.conversation.post.category;
+                        const postId = msg.conversation.post.id;
+                        url = `/category/${postCategory}?chat=${postId}`;
+                        postTitle = `Re: ${msg.conversation.post.title}`;
+                    }
+
+                    html += `
+                        <a href="${url}" class="flex items-center gap-4 p-5 bg-white hover:bg-slate-50 transition-colors border-b border-slate-50 border-l-4 border-l-[#36B3C9] group shadow-sm">
+                            <div class="h-11 w-11 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform ${iconClass}">
+                                <i class="fas ${iconClass.split(' ')[0]} text-sm"></i>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-[10px] font-bold text-[#36B3C9] uppercase tracking-wider mb-0.5 flex items-center">
+                                    Message
+                                </p>
+                                <p class="text-sm font-medium text-slate-700 leading-tight truncate">${mainText}</p>
+                                <p class="text-[9px] font-bold text-slate-400 mt-1 truncate">${postTitle}</p>
+                            </div>
+                        </a>
+                    `;
+                });
+            }
+
+            // --- RENDER STANDARD POST UPDATES SECOND ---
             if (recentUpdates && recentUpdates.length > 0) {
                 recentUpdates.forEach(post => {
-                    
-                    // THE FIX: Admins track by 'created_at', Regular Users track by 'updated_at'
                     const timeToTrack = isAdmin ? post.created_at : post.updated_at;
                     const notifKey = post.id + '_' + new Date(timeToTrack).getTime();
 
@@ -164,7 +209,6 @@
                         const url = `/category/${routeCat}?post=${post.id}`;
                         const config = categoryConfig[post.category] || { name: post.category, icon: 'fa-bell' };
 
-                        // CREATE THE STATUS BADGE
                         let statusBadge = '';
                         if (['requests', 'complaints'].includes(post.category)) {
                             const sColors = { 'pending': 'text-yellow-600 bg-yellow-100', 'approved': 'text-green-600 bg-green-100', 'completed': 'text-blue-600 bg-blue-100', 'rejected': 'text-red-600 bg-red-100' };
@@ -172,7 +216,6 @@
                             statusBadge = `<span class="ml-2 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${badgeClass}">${post.status || 'Pending'}</span>`;
                         }
 
-                        // Determine the author text
                         const authorText = post.user_id === currentUserId ? '<span class="text-[#36B3C9]">My Request Update</span>' : (post.user ? post.user.name : 'Neighbor');
 
                         html += `
@@ -217,6 +260,7 @@
         };
 
         window.clearAllNotifications = function() {
+            // Clear standard post localstorage notifs
             if (recentUpdates) {
                 recentUpdates.forEach(post => {
                     const timeToTrack = isAdmin ? post.created_at : post.updated_at;
@@ -226,8 +270,18 @@
                     }
                 });
                 localStorage.setItem('neighborhub_read_notifs', JSON.stringify(readNotifs));
-                renderNotifications();
             }
+            
+            // Mark chat messages as read silently in the background
+            if (chatNotifications && chatNotifications.length > 0) {
+                fetch('/notifications/clear', {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content') }
+                });
+                chatNotifications.length = 0; 
+            }
+            
+            renderNotifications();
         };
 
         function toggleNotifications() {

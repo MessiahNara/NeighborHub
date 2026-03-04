@@ -36,13 +36,8 @@ class DashboardController extends Controller
         $recentUpdatesQuery = Post::with('user');
 
         if ($isAdmin) {
-            // Admins see everyone else's NEWEST posts. (Ordered by created_at)
-            // This prevents them from being notified about their own status updates!
-            $recentUpdatesQuery->where('user_id', '!=', $userId)
-                               ->orderBy('created_at', 'desc');
+            $recentUpdatesQuery->where('user_id', '!=', $userId)->orderBy('created_at', 'desc');
         } else {
-            // Regular users see: public posts from others OR status updates on their own requests.
-            // Ordered by updated_at so they see the Admin's response!
             $recentUpdatesQuery->where(function($query) use ($userId) {
                 $query->where('user_id', '!=', $userId)
                       ->whereNotIn('category', ['complaints', 'requests']);
@@ -52,15 +47,29 @@ class DashboardController extends Controller
             })->orderBy('updated_at', 'desc');
         }
 
-        // Fetch the final 5 posts
         $recentUpdates = $recentUpdatesQuery->take(5)->get();
 
-        return view('dashboard', compact('counts', 'recentUpdates'));
+        // --- BULLETPROOF FIX: CATCH ALL UNREAD FORMATS (FALSE, 0, OR NULL) ---
+        $chatNotifications = \App\Models\Message::where(function($query) {
+                // This guarantees we catch unread messages no matter how your database saves them
+                $query->where('is_read', false)
+                      ->orWhere('is_read', 0)
+                      ->orWhereNull('is_read');
+            })
+            ->where('user_id', '!=', $userId) // Messages NOT sent by me
+            ->whereHas('conversation', function($q) use ($userId) {
+                $q->where('sender_id', $userId)
+                  ->orWhere('receiver_id', $userId);
+            })
+            ->with(['user', 'conversation.post']) // Load the sender and the post it belongs to
+            ->latest()
+            ->get();
+
+        return view('dashboard', compact('counts', 'recentUpdates', 'chatNotifications'));
     }
 
     /**
      * Show a specific category with search and tag filtering.
-     * UPDATE: Added logic to make complaints and requests private to the sender and admins.
      */
     public function show(Request $request, $type)
     {
@@ -72,29 +81,24 @@ class DashboardController extends Controller
 
         $dbCategory = $categoryMap[$type] ?? $type;
         
-        // Start building the query
         $query = Post::where('category', $dbCategory);
 
         // Privacy control for requests and complaints
         $privateCategories = ['requests', 'complaints'];
         if (in_array($dbCategory, $privateCategories)) {
-            // If the user is NOT an admin, they can only see their own private posts
             if (Auth::user()->role !== 'admin') {
                 $query->where('user_id', Auth::id());
             }
         }
 
-        // ---> FIXED: Filter for the "My Posts" tab <---
         if ($request->filled('my_posts') && $request->my_posts == '1') {
             $query->where('user_id', Auth::id());
         }
 
-        // Search by title if the user typed in the search bar
         if ($request->filled('search')) {
             $query->where('title', 'like', '%' . $request->search . '%');
         }
 
-        // Filter by tag if selected in the category search bar
         if ($request->filled('tag')) {
             $query->whereJsonContains('tags', $request->tag);
         }
@@ -106,11 +110,10 @@ class DashboardController extends Controller
 
     /**
      * Save a new post to the MySQL database.
-     * UPDATE: Restricts announcements and events to Admins using all possible form variations.
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $rules = [
             'title'       => 'required|string|max:255',
             'category'    => 'required',
             'description' => 'nullable',
@@ -118,18 +121,24 @@ class DashboardController extends Controller
             'event_date'  => 'nullable|date',
             'tags'        => 'nullable|array', 
             'images.*'    => 'image|mimes:jpeg,png,jpg,gif|max:2048'
-        ]);
+        ];
 
-        // We added all possible variations the HTML form might send
+        if (in_array($request->category, ['buy-sell', 'buy_sell'])) {
+            $rules['condition'] = 'required|string';
+        } else {
+            $rules['condition'] = 'nullable|string';
+        }
+
+        $request->validate($rules);
+
         $adminOnlyCategories = ['announce', 'announcements', 'event', 'events'];
         
         if (in_array($request->category, $adminOnlyCategories) && Auth::user()->role !== 'admin') {
             return back()->with('error', 'Only administrators can post in the Announcements or Events category.');
         }
 
-        $data = $request->only(['title', 'category', 'description', 'price', 'event_date', 'tags']);
+        $data = $request->only(['title', 'category', 'description', 'price', 'condition', 'event_date', 'tags']);
         
-        // Ensure the database always gets the proper full category name for consistency
         if ($data['category'] === 'announce') {
             $data['category'] = 'announcements';
         } elseif ($data['category'] === 'event') {
@@ -154,7 +163,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * NEW: Update the status and appointment date of a request (Admin Only)
+     * Update the status and appointment date of a request (Admin Only)
      */
     public function updateStatus(Request $request, $id)
     {
@@ -167,10 +176,8 @@ class DashboardController extends Controller
         $post->status = $request->status;
         
         if ($request->filled('event_date')) {
-            // ---> FIXED: Using Carbon to guarantee the exact datetime string is safely built <---
             $post->event_date = Carbon::parse($request->event_date)->format('Y-m-d H:i:s');
         } else {
-            // Allow admin to clear the date if rejected or pending
             $post->event_date = null;
         }
 
@@ -204,27 +211,5 @@ class DashboardController extends Controller
         }
 
         return abort(403, 'Unauthorized action.');
-    }
-
-    /**
-     * API: Fetch a single post's details for the modal popup.
-     */
-    public function getPostDetails($id)
-    {
-        $post = Post::with('user')->findOrFail($id);
-        
-        return response()->json([
-            'id' => $post->id,
-            'title' => $post->title,
-            'description' => $post->description,
-            'price' => $post->price,
-            'event_date' => $post->event_date,
-            'tags' => $post->tags, 
-            'category' => $post->category,
-            'status' => $post->status, 
-            'created_at' => $post->created_at,
-            'user' => $post->user,
-            'image' => $post->image
-        ]);
     }
 }

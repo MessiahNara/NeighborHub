@@ -16,6 +16,7 @@ class Post extends Model
         'description', 
         'event_date',
         'price', 
+        'condition', // <--- ADDED THIS FOR BUY & SELL
         'tags',
         'image',
         'status',
@@ -31,5 +32,11 @@ class Post extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    // <--- ADDED THIS RELATIONSHIP FOR THE NEW LIKES FEATURE
+    public function likes()
+    {
+        return $this->hasMany(Like::class);
     }
 }

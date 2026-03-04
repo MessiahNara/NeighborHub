@@ -4,10 +4,12 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ChatController; 
+use App\Http\Controllers\PostController; 
 use App\Http\Middleware\IsAdmin;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Post;
+use App\Models\Message; // <--- ADDED MESSAGE MODEL
 
 // FORCE LOGIN: Send everyone to login first
 Route::get('/', function () {
@@ -38,10 +40,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Update Appointment Status (Admin Scheduling)
     Route::patch('/post/{id}/status', [DashboardController::class, 'updateStatus'])->name('post.updateStatus');
 
-    // API for Popups (With User Name Fix)
-    Route::get('/api/post/{id}', function ($id) {
-        return Post::with('user')->findOrFail($id);
-    });
+    // --- NEW: API for Popups and Likes ---
+    Route::get('/api/post/{id}', [PostController::class, 'show']);
+    Route::post('/post/{post}/like', [PostController::class, 'toggleLike'])->name('post.like');
 
     // Profile Settings
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -58,6 +59,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     
     // Full-page Inbox Route (Kept just in case you ever want a main page for it)
     Route::get('/inbox', [ChatController::class, 'index'])->name('chat.index');
+
+    // --- FIXED: NOTIFICATIONS CLEAR ROUTE ---
+    // This safely marks all messages sent to you as "read" without needing a notifications table!
+    Route::post('/notifications/clear', function() {
+        $userId = Auth::id();
+        
+        Message::where('is_read', false)
+            ->where('user_id', '!=', $userId) // Messages NOT sent by the current user
+            ->whereHas('conversation', function($q) use ($userId) {
+                $q->where('sender_id', $userId)
+                  ->orWhere('receiver_id', $userId);
+            })
+            ->update(['is_read' => true]);
+
+        return response()->json(['status' => 'cleared']);
+    })->name('notifications.clear');
 });
 
 // ADMIN ROUTES (Strictly for users with the 'admin' role)

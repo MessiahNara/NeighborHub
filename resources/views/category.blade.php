@@ -227,6 +227,10 @@
                                 <i class="fas fa-camera text-slate-200 text-4xl group-hover:text-[#36B3C9] transition"></i>
                             @endif
 
+                            <div class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md text-red-500 text-[10px] px-2 py-1 rounded-lg font-black shadow-sm flex items-center gap-1">
+                                <i class="fas fa-heart"></i> {{ $post->likes->count() }}
+                            </div>
+
                             @if($post->tags)
                                 <div class="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[80%]">
                                     @php $displayTags = is_string($post->tags) ? json_decode($post->tags, true) : $post->tags; @endphp
@@ -342,6 +346,18 @@
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" enctype="multipart/form-data" class="space-y-5">
                     @csrf <input type="hidden" name="category" value="{{ $type }}">
                     <input type="text" name="title" placeholder="Item Name / Title" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
+                    
+                    @if($isBuySell)
+                    <select name="condition" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-500 cursor-pointer" required>
+                        <option value="" disabled selected>Select Condition</option>
+                        <option value="New">New</option>
+                        <option value="Like New">Like New</option>
+                        <option value="Good">Good</option>
+                        <option value="Fair">Fair</option>
+                        <option value="Poor">Poor</option>
+                    </select>
+                    @endif
+
                     @if(!empty($availableTags))
                         <div>
                             <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Tags (Select Multiple)</label>
@@ -395,16 +411,21 @@
             </div>
 
             <div class="p-12">
-                <div class="flex items-center gap-4 mb-8">
-                    <div class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl"><i class="fas fa-user-circle"></i></div>
-                    <div>
-                        <p id="detUser" class="text-lg font-black text-slate-800 leading-none mb-1"></p>
-                        <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1"></p>
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center gap-4">
+                        <div class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl"><i class="fas fa-user-circle"></i></div>
+                        <div>
+                            <p id="detUser" class="text-lg font-black text-slate-800 leading-none mb-1"></p>
+                            <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1"></p>
+                        </div>
                     </div>
+                    <div id="likeButtonContainer"></div>
                 </div>
+
                 <div id="detTitleContainer" class="mb-6"></div>
                 <div class="flex flex-wrap items-center gap-3 mb-6">
                     <div id="detPrice" class="w-full"></div>
+                    <div id="detConditionContainer"></div>
                     <div id="detTagsContainer" class="flex gap-2"></div> 
                 </div>
                 <div id="detDesc" class="bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100 hidden"></div>
@@ -456,6 +477,7 @@
 
     <script>
         let currentIdx = 0; let totalImgs = 0; let selectedFiles = [];
+        let currentDetailPostId = null;
 
         function toggleModal(id) {
             const modal = document.getElementById(id); modal.classList.toggle('hidden');
@@ -483,6 +505,7 @@
         function resetUploadForm() { selectedFiles = []; document.getElementById('imagePreviewContainer').innerHTML = ''; if(fileInput) fileInput.value = ''; document.getElementById('postForm').reset(); }
 
         function openDetail(id) {
+            currentDetailPostId = id; 
             fetch(`/api/post/${id}`)
                 .then(r => r.json())
                 .then(d => {
@@ -492,16 +515,10 @@
                     if (d.event_date) {
                         let cleanStr = d.event_date.replace('T', ' ').split('.')[0].replace('Z', '');
                         let parts = cleanStr.split(/[- :]/);
-                       
                         if (parts.length >= 5) {
                             let year = parts[0], month = parts[1], day = parts[2], hour = parts[3], min = parts[4];
                             let localDate = new Date(year, month - 1, day, hour, min);
-                           
-                            displayDateTime = localDate.toLocaleString(undefined, {
-                                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-                                hour: '2-digit', minute: '2-digit'
-                            });
-
+                            displayDateTime = localDate.toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                             inputDateTime = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
                         } else if (parts.length >= 3) {
                             let year = parts[0], month = parts[1], day = parts[2];
@@ -524,29 +541,8 @@
                                 else if (line.startsWith('Purpose for Request:')) isPurpose = true;
                                 else if (isPurpose) purpose += line + '\n';
                             });
-                           
                             descEl.className = "mb-8";
-                            descEl.innerHTML = `
-                                <div class="bg-slate-50 border border-slate-100 rounded-[2rem] p-8">
-                                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                                        <i class="fas fa-file-invoice text-[#36B3C9] text-lg"></i> Document Request Details
-                                    </h4>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                                        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50">
-                                            <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Requester Name</span>
-                                            <span class="text-sm font-bold text-slate-800">${reqName}</span>
-                                        </div>
-                                        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50">
-                                            <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Home Address</span>
-                                            <span class="text-sm font-bold text-slate-800">${homeAddr}</span>
-                                        </div>
-                                    </div>
-                                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50">
-                                        <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Purpose for Request</span>
-                                        <p class="text-sm font-medium text-slate-600 whitespace-pre-wrap mt-1">${purpose.trim()}</p>
-                                    </div>
-                                </div>
-                            `;
+                            descEl.innerHTML = `<div class="bg-slate-50 border border-slate-100 rounded-[2rem] p-8"><h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><i class="fas fa-file-invoice text-[#36B3C9] text-lg"></i> Document Request Details</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6"><div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50"><span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Requester Name</span><span class="text-sm font-bold text-slate-800">${reqName}</span></div><div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50"><span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Home Address</span><span class="text-sm font-bold text-slate-800">${homeAddr}</span></div></div><div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-50"><span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Purpose for Request</span><p class="text-sm font-medium text-slate-600 whitespace-pre-wrap mt-1">${purpose.trim()}</p></div></div>`;
                         } else {
                             descEl.className = "bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100";
                             descEl.innerText = d.description;
@@ -566,6 +562,19 @@
                     const userRole = "{{ Auth::user()->role ?? '' }}";
                     const currentUserId = {{ Auth::id() ?? 'null' }};
 
+                    const likeContainer = document.getElementById('likeButtonContainer');
+                    if(currentUserId) {
+                         const likeBtnClass = d.is_liked_by_user ? 'text-red-500 bg-red-50 border-red-100' : 'text-slate-300 bg-slate-50 border-slate-100 hover:text-red-400 hover:bg-red-50';
+                         likeContainer.innerHTML = `<button onclick="toggleLike(${d.id})" id="likeBtn-${d.id}" class="flex items-center gap-2 px-4 py-2 rounded-xl border transition ${likeBtnClass}"><i class="fas fa-heart text-xl"></i><span id="likeCount-${d.id}" class="font-black text-sm">${d.likes_count}</span></button>`;
+                    } else {
+                         likeContainer.innerHTML = `<div class="flex items-center gap-2 px-4 py-2 rounded-xl border text-slate-300 bg-slate-50 border-slate-100"><i class="fas fa-heart text-xl"></i><span class="font-black text-sm">${d.likes_count}</span></div>`;
+                    }
+
+                    const conditionContainer = document.getElementById('detConditionContainer');
+                    if(d.condition) {
+                        conditionContainer.innerHTML = `<div class="bg-slate-800 text-white px-4 py-1 rounded-lg text-xs font-black uppercase tracking-widest">${d.condition}</div>`;
+                    } else { conditionContainer.innerHTML = ''; }
+
                     const tagContainer = document.getElementById('detTagsContainer');
                     tagContainer.innerHTML = '';
                     if(d.tags) {
@@ -582,80 +591,23 @@
                     }
 
                     if (d.category === 'requests' || d.category === 'complaints') {
-                        const statusColors = {
-                            'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200',
-                            'approved': 'bg-green-100 text-green-700 border-green-200',
-                            'completed': 'bg-blue-100 text-blue-700 border-blue-200',
-                            'rejected': 'bg-red-100 text-red-700 border-red-200'
-                        };
-                        const statusIcons = {
-                            'pending': 'fa-hourglass-half',
-                            'approved': 'fa-check-circle',
-                            'completed': 'fa-flag-checkered',
-                            'rejected': 'fa-times-circle'
-                        };
-                       
+                        const statusColors = { 'pending': 'bg-yellow-100 text-yellow-700 border-yellow-200', 'approved': 'bg-green-100 text-green-700 border-green-200', 'completed': 'bg-blue-100 text-blue-700 border-blue-200', 'rejected': 'bg-red-100 text-red-700 border-red-200' };
+                        const statusIcons = { 'pending': 'fa-hourglass-half', 'approved': 'fa-check-circle', 'completed': 'fa-flag-checkered', 'rejected': 'fa-times-circle' };
                         const sColor = statusColors[d.status || 'pending'] || 'bg-slate-100 text-slate-700 border-slate-200';
                         const sIcon = statusIcons[d.status || 'pending'] || 'fa-info-circle';
-                       
-                        titleContainer.innerHTML = `
-                            <div class="flex flex-col items-start gap-4">
-                                <h2 class="text-4xl md:text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>
-                                <span class="px-5 py-2 rounded-full text-[11px] font-black tracking-widest uppercase border shadow-sm flex items-center gap-2 ${sColor}">
-                                    <i class="fas ${sIcon}"></i> STATUS: ${(d.status || 'pending')}
-                                </span>
-                            </div>
-                        `;
-                       
+                        titleContainer.innerHTML = `<div class="flex flex-col items-start gap-4"><h2 class="text-4xl md:text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2><span class="px-5 py-2 rounded-full text-[11px] font-black tracking-widest uppercase border shadow-sm flex items-center gap-2 ${sColor}"><i class="fas ${sIcon}"></i> STATUS: ${(d.status || 'pending')}</span></div>`;
                         if(displayDateTime) {
                             const dateLabel = d.status === 'rejected' ? 'Actioned On' : 'Scheduled For';
-                            priceEl.innerHTML = `
-                                <div class="bg-[#36B3C9]/10 border border-[#36B3C9]/20 p-5 rounded-[1.5rem] w-full mt-2">
-                                    <span class="text-[10px] font-black text-[#36B3C9] uppercase tracking-widest block mb-1"><i class="fas fa-calendar-alt mr-1"></i> ${dateLabel}</span>
-                                    <span class="text-slate-800 text-lg font-black tracking-tight">${displayDateTime}</span>
-                                </div>
-                            `;
+                            priceEl.innerHTML = `<div class="bg-[#36B3C9]/10 border border-[#36B3C9]/20 p-5 rounded-[1.5rem] w-full mt-2"><span class="text-[10px] font-black text-[#36B3C9] uppercase tracking-widest block mb-1"><i class="fas fa-calendar-alt mr-1"></i> ${dateLabel}</span><span class="text-slate-800 text-lg font-black tracking-tight">${displayDateTime}</span></div>`;
                         } else {
-                            priceEl.innerHTML = `
-                                <div class="bg-yellow-50 border border-yellow-100 p-5 rounded-[1.5rem] w-full mt-2">
-                                    <span class="text-xs font-black text-yellow-600 uppercase tracking-widest flex items-center gap-2">
-                                        <i class="fas fa-clock text-lg"></i> Waiting for Admin to set schedule
-                                    </span>
-                                </div>
-                            `;
+                            priceEl.innerHTML = `<div class="bg-yellow-50 border border-yellow-100 p-5 rounded-[1.5rem] w-full mt-2"><span class="text-xs font-black text-yellow-600 uppercase tracking-widest flex items-center gap-2"><i class="fas fa-clock text-lg"></i> Waiting for Admin to set schedule</span></div>`;
                         }
-
                         if (userRole === 'admin') {
-                            adminControls.innerHTML = `
-                                <form action="/post/${d.id}/status" method="POST" class="mt-6 p-8 bg-white shadow-xl shadow-slate-200/50 rounded-[2.5rem] border border-slate-100 animate-pop">
-                                    <input type="hidden" name="_token" value="{{ csrf_token() }}">
-                                    <input type="hidden" name="_method" value="PATCH">
-                                    <h4 class="font-black uppercase text-sm mb-6 text-[#36B3C9] flex items-center gap-2"><i class="fas fa-calendar-check text-lg"></i> Admin: Manage Appointment</h4>
-                                   
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div class="bg-slate-50 p-4 rounded-[1.5rem]">
-                                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Update Status</label>
-                                            <select name="status" id="adminStatusSelect" onchange="toggleTimePicker(this.value)" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
-                                                <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending Review</option>
-                                                <option value="approved" ${d.status === 'approved' ? 'selected' : ''}>Approved / Scheduled</option>
-                                                <option value="completed" ${d.status === 'completed' ? 'selected' : ''}>Completed</option>
-                                                <option value="rejected" ${d.status === 'rejected' ? 'selected' : ''}>Rejected</option>
-                                            </select>
-                                        </div>
-                                        <div class="bg-slate-50 p-4 rounded-[1.5rem]">
-                                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Set Date & Time</label>
-                                            <input type="datetime-local" name="event_date" value="${inputDateTime}" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer">
-                                        </div>
-                                    </div>
-                                    <button type="submit" class="mt-6 w-full bg-slate-800 text-white font-black py-4 rounded-[1.5rem] uppercase tracking-widest text-[10px] shadow-lg hover:bg-slate-700 transition active:scale-95">Update Appointment</button>
-                                </form>
-                            `;
+                            adminControls.innerHTML = `<form action="/post/${d.id}/status" method="POST" class="mt-6 p-8 bg-white shadow-xl shadow-slate-200/50 rounded-[2.5rem] border border-slate-100 animate-pop"><input type="hidden" name="_token" value="{{ csrf_token() }}"><input type="hidden" name="_method" value="PATCH"><h4 class="font-black uppercase text-sm mb-6 text-[#36B3C9] flex items-center gap-2"><i class="fas fa-calendar-check text-lg"></i> Admin: Manage Appointment</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="bg-slate-50 p-4 rounded-[1.5rem]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Update Status</label><select name="status" id="adminStatusSelect" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer"><option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending Review</option><option value="approved" ${d.status === 'approved' ? 'selected' : ''}>Approved / Scheduled</option><option value="completed" ${d.status === 'completed' ? 'selected' : ''}>Completed</option><option value="rejected" ${d.status === 'rejected' ? 'selected' : ''}>Rejected</option></select></div><div class="bg-slate-50 p-4 rounded-[1.5rem]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Set Date & Time</label><input type="datetime-local" name="event_date" value="${inputDateTime}" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer"></div></div><button type="submit" class="mt-6 w-full bg-slate-800 text-white font-black py-4 rounded-[1.5rem] uppercase tracking-widest text-[10px] shadow-lg hover:bg-slate-700 transition active:scale-95">Update Appointment</button></form>`;
                         } else { adminControls.innerHTML = ''; }
                     } else {
-                        // Regular Post Display (Buy/Sell, Events, Places)
                         adminControls.innerHTML = '';
                         titleContainer.innerHTML = `<h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>`;
-                       
                         if(d.category === 'events' && d.event_date) {
                             priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${displayDateTime || new Date(d.event_date).toLocaleDateString()}</span>`;
                         } else if(isBuySell) {
@@ -663,23 +615,34 @@
                         } else { priceEl.innerHTML = ''; }
                     }
 
-                    // Setup Contact & Delete buttons
                     const contactArea = document.getElementById('contactButtonContainer');
+                    contactArea.innerHTML = ''; 
+
                     if(isBuySell || d.category === 'borrow' || d.category === 'services') {
                         if (currentUserId !== null && d.user_id !== currentUserId) {
                             const safeTitle = d.title.replace(/['"]/g, '');
-                            contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
-                        } else {
-                            contactArea.innerHTML = '';
+                            if(isBuySell) {
+                                contactArea.innerHTML = `
+                                    <div class="flex flex-col gap-3 w-full">
+                                         <div class="flex rounded-2xl shadow-lg shadow-cyan-100/50 overflow-hidden border border-[#36B3C9]/20">
+                                            <span class="bg-slate-50 flex items-center pl-4 text-slate-400 font-black">₱</span>
+                                            <input type="number" id="offerInput" placeholder="Offer Amount" class="flex-1 border-none bg-slate-50 px-2 font-bold text-slate-800 focus:ring-0">
+                                            <button onclick="sendOffer('${safeTitle}')" class="bg-[#36B3C9] text-white px-6 py-4 font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition">Make Offer</button>
+                                         </div>
+                                         <button onclick="openChatBox(${d.id}, '${safeTitle}')" class="w-full bg-white text-slate-400 font-bold py-3 rounded-2xl border border-slate-200 hover:bg-slate-50 hover:text-slate-600 transition uppercase tracking-widest text-[10px]">Just Message</button>
+                                    </div>
+                                `;
+                            } else {
+                                contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
+                            }
                         }
-                    } else { contactArea.innerHTML = ''; }
+                    }
                    
                     const deleteArea = document.getElementById('detDeleteContainer');
                     if(userRole === 'admin' || currentUserId === d.user_id) {
                         deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`;
                     } else { deleteArea.innerHTML = ''; }
 
-                    // Images
                     const imgSection = document.getElementById('detailImageSection'); const imgContainer = document.getElementById('detImg');
                     let images = []; try { images = Array.isArray(d.image) ? d.image : (d.image ? JSON.parse(d.image) : []); } catch(e) { images = []; }
                     if (images.length > 0) { imgSection.classList.remove('hidden'); imgContainer.innerHTML = images.map(img => `<div class="w-full h-full flex-shrink-0 snap-center flex items-center justify-center bg-black"><img src="/uploads/${img}" class="max-w-full max-h-full object-contain"></div>`).join(''); totalImgs = images.length; currentIdx = 0; if(totalImgs <= 1) { document.getElementById('prevBtn').classList.add('hidden'); document.getElementById('nextBtn').classList.add('hidden'); } else { document.getElementById('prevBtn').classList.remove('hidden'); document.getElementById('nextBtn').classList.remove('hidden'); } } else { imgSection.classList.add('hidden'); }
@@ -736,6 +699,12 @@
                             if (isUnread) unreadTotal++;
 
                             let msgText = lastMsg ? lastMsg.body : 'No messages yet.';
+                            
+                            // NEW: Format the Inbox Preview so raw magic strings are hidden
+                            if(msgText.startsWith('[OFFER-')) msgText = '<i class="fas fa-hand-holding-usd text-[#36B3C9]"></i> Sent an offer.';
+                            if(msgText.startsWith('[ACCEPT-')) msgText = '<i class="fas fa-check-circle text-green-500"></i> Accepted the offer!';
+                            if(msgText.startsWith('[DECLINE-')) msgText = '<i class="fas fa-times-circle text-red-500"></i> Declined the offer.';
+
                             let dateText = lastMsg ? new Date(lastMsg.created_at).toLocaleDateString() : '';
                             let unreadClass = isUnread ? 'bg-white border-l-4 border-[#36B3C9] shadow-md' : 'bg-white border border-slate-100 hover:shadow-sm';
                             let titleClass = isUnread ? 'text-[#36B3C9] font-black' : 'text-slate-700 font-bold';
@@ -760,7 +729,6 @@
                         });
                     }
 
-                    // Dynamically update the unread badge after loading inbox
                     const badge = document.getElementById('unreadBadge');
                     if (badge) {
                         if (unreadTotal > 0) {
@@ -779,13 +747,12 @@
             openChatBox(postId, postTitle);
         }
 
-        function openChatBox(postId, postTitle = 'Chat') {
+        function openChatBox(postId, postTitle = 'Chat', initialMessage = null) {
             const detailModal = document.getElementById('detailModal');
             if(detailModal && !detailModal.classList.contains('hidden')) {
                 toggleModal('detailModal');
             }
 
-            // NEW: Hide all currently open chat boxes so they don't overlap!
             document.querySelectorAll('[id^="chatBox-"]').forEach(box => {
                 if (!box.classList.contains('hidden') && box.id !== 'chatBox-' + postId) {
                     box.classList.add('hidden');
@@ -821,7 +788,7 @@
 
             box.classList.remove('hidden');
             box.classList.add('flex');
-            fetchMessages(postId);
+            fetchMessages(postId, initialMessage);
         }
 
         function closeChatBox(postId, event) {
@@ -840,7 +807,7 @@
             }
         }
 
-        function fetchMessages(postId) {
+        function fetchMessages(postId, initialMessage = null) {
             fetch(`/api/chat/${postId}`)
                 .then(response => response.json())
                 .then(data => {
@@ -854,18 +821,21 @@
                     }
 
                     data.messages.forEach(msg => {
-                        appendMessageToDOM(postId, msg, data.current_user_id);
+                        // Pass the post_owner_id into the DOM appender so it knows who the seller is
+                        appendMessageToDOM(postId, msg, data.current_user_id, data.post_owner_id);
                     });
                    
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-                    // When you open a chat, the unread messages are marked as read in the backend. 
-                    // Let's instantly reload the inbox badge in the background to reflect that!
+                    if(initialMessage) {
+                         document.getElementById('chatInput-' + postId).value = initialMessage;
+                         document.querySelector(`#chatBox-${postId} form`).dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                    }
+
                     const inboxPanel = document.getElementById('inboxPanel');
                     if (inboxPanel && !inboxPanel.classList.contains('translate-x-full')) {
                         loadInbox();
                     } else {
-                        // Quick background fetch just to update badge
                         fetch(`/api/inbox?category={{ $type }}`)
                             .then(r => r.json())
                             .then(conversations => {
@@ -902,15 +872,22 @@
                 body: JSON.stringify({ body: body })
             })
             .then(response => response.json())
-            .then(msg => {
-                appendMessageToDOM(postId, msg, msg.user_id);
+            .then(payload => {
+                // Ensure compatibility with the updated ChatController returning a payload object
+                let msg = payload.message || payload;
+                let ownerId = payload.post_owner_id || currentDetailPostId;
+                
+                appendMessageToDOM(postId, msg, msg.user_id, ownerId);
                 const messagesContainer = document.getElementById('chatMessages-' + postId);
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
             })
             .catch(err => console.error("Error sending message:", err));
         }
 
-        function appendMessageToDOM(postId, msg, currentUserId) {
+        // ===============================================
+        // NEW PARSER: CREATES THE OFFER BUTTONS AND BOLD UI
+        // ===============================================
+        function appendMessageToDOM(postId, msg, currentUserId, postOwnerId) {
             const messagesContainer = document.getElementById('chatMessages-' + postId);
             if(!messagesContainer) return;
            
@@ -920,19 +897,99 @@
 
             const isMe = msg.user_id === currentUserId;
             const alignClass = isMe ? 'justify-end' : 'justify-start';
-            const bgClass = isMe ? 'bg-[#36B3C9] text-white rounded-l-2xl rounded-tr-2xl' : 'bg-white border border-slate-200 text-slate-800 rounded-r-2xl rounded-tl-2xl';
+            let bgClass = isMe ? 'bg-[#36B3C9] text-white rounded-l-2xl rounded-tr-2xl' : 'bg-white border border-slate-200 text-slate-800 rounded-r-2xl rounded-tl-2xl';
            
+            // Check for magic string tags
+            let displayBody = msg.body;
+            let extraHtml = '';
+
+            const offerMatch = msg.body.match(/^\[OFFER-(.+)\]$/);
+            const acceptMatch = msg.body.match(/^\[ACCEPT-(.+)\]$/);
+            const declineMatch = msg.body.match(/^\[DECLINE-(.+)\]$/);
+
+            if (offerMatch) {
+                const amount = offerMatch[1];
+                // Bold and colored price
+                displayBody = `<span class="opacity-80">I would like to offer</span> <strong class="text-xl font-black ${isMe ? 'text-white' : 'text-[#36B3C9]'} tracking-tight block my-1">₱${amount}</strong> <span class="opacity-80"></span>`;
+                
+                // If the reader is the SELLER, and they are reading the BUYER'S offer: SHOW BUTTONS
+                if (currentUserId === postOwnerId && !isMe) {
+                    extraHtml = `
+                        <div class="mt-3 flex gap-2 border-t border-slate-200 pt-3">
+                            <button type="button" onclick="respondToOffer(${postId}, '${amount}', 'accept')" class="flex-1 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest shadow-sm transition active:scale-95">Accept</button>
+                            <button type="button" onclick="respondToOffer(${postId}, '${amount}', 'decline')" class="flex-1 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest shadow-sm transition active:scale-95">Decline</button>
+                        </div>
+                    `;
+                }
+            } else if (acceptMatch) {
+                displayBody = `<i class="fas fa-check-circle text-lg mb-1 block"></i> <span class="opacity-80">I accept your offer of</span> <strong class="text-lg font-black tracking-tight block my-1">₱${acceptMatch[1]}</strong> <span class="opacity-80">Let's make a deal.</span>`;
+                bgClass = isMe ? 'bg-green-500 text-white rounded-l-2xl rounded-tr-2xl' : 'bg-green-50 border border-green-200 text-green-800 rounded-r-2xl rounded-tl-2xl';
+            } else if (declineMatch) {
+                displayBody = `<i class="fas fa-times-circle text-lg mb-1 block"></i> <span class="opacity-80">I'm sorry, I cannot accept the offer of</span> <strong class="text-lg font-black tracking-tight block my-1">₱${declineMatch[1]}</strong>`;
+                bgClass = isMe ? 'bg-red-500 text-white rounded-l-2xl rounded-tr-2xl' : 'bg-red-50 border border-red-200 text-red-800 rounded-r-2xl rounded-tl-2xl';
+            }
+
             const messageHtml = `
                 <div class="flex ${alignClass} w-full my-1">
-                    <div class="max-w-[80%] ${bgClass} p-3 shadow-sm text-sm font-medium">
-                        ${msg.body}
+                    <div class="max-w-[85%] min-w-[50%] ${bgClass} p-4 shadow-sm text-sm font-medium leading-tight">
+                        ${displayBody}
+                        ${extraHtml}
                     </div>
                 </div>
             `;
             messagesContainer.insertAdjacentHTML('beforeend', messageHtml);
         }
 
-        // --- CALENDAR INITIALIZATION ---
+        function toggleLike(postId) {
+            fetch(`/post/${postId}/like`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': getCsrfToken()
+                }
+            })
+            .then(r => r.json())
+            .then(data => {
+                const likeBtn = document.getElementById(`likeBtn-${postId}`);
+                const likeCount = document.getElementById(`likeCount-${postId}`);
+                
+                if (data.liked) {
+                    likeBtn.classList.remove('text-slate-300', 'bg-slate-50', 'border-slate-100');
+                    likeBtn.classList.add('text-red-500', 'bg-red-50', 'border-red-100');
+                } else {
+                    likeBtn.classList.add('text-slate-300', 'bg-slate-50', 'border-slate-100');
+                    likeBtn.classList.remove('text-red-500', 'bg-red-50', 'border-red-100');
+                }
+                likeCount.innerText = data.count;
+            })
+            .catch(e => console.error("Error toggling like:", e));
+        }
+
+        // --- NEW FUNCTION: SEND MAGIC OFFER STRING ---
+        function sendOffer(postTitle) {
+            const amount = document.getElementById('offerInput').value;
+            if (!amount || !currentDetailPostId) return alert("Please enter an offer amount.");
+            
+            const formattedAmount = new Intl.NumberFormat().format(amount);
+            const magicString = `[OFFER-${formattedAmount}]`; 
+            
+            openChatBox(currentDetailPostId, postTitle, magicString);
+        }
+
+        // --- NEW FUNCTION: RESPOND TO OFFER (Clicking Accept/Decline) ---
+        function respondToOffer(postId, amount, action) {
+            let magicString = '';
+            if (action === 'accept') {
+                magicString = `[ACCEPT-${amount}]`;
+            } else {
+                magicString = `[DECLINE-${amount}]`;
+            }
+            
+            document.getElementById('chatInput-' + postId).value = magicString;
+            // Submit the form just like normal
+            document.querySelector(`#chatBox-${postId} form`).dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
@@ -949,13 +1006,26 @@
         });
         @endif
 
-        // --- URL PARAMETER CHECKER TO AUTO-OPEN POSTS ---
+        // --- URL PARAMETER CHECKER TO AUTO-OPEN POSTS OR CHATS ---
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const postIdToOpen = urlParams.get('post');
+            const chatIdToOpen = urlParams.get('chat');
            
+            // Standard Post Link
             if (postIdToOpen) {
                 openDetail(postIdToOpen);
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
+            // Direct Chat Link (From Notifications!)
+            if (chatIdToOpen) {
+                // Fetch the post details quickly to get the correct title, then open the chat!
+                fetch(`/api/post/${chatIdToOpen}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        openChatBox(d.id, d.title.replace(/['"]/g, ''));
+                    });
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         });
