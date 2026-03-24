@@ -37,6 +37,7 @@
     $adminOnlyCategories = ['events', 'places', 'announcements', 'announce', 'event'];
     $isAdminOnly = in_array($normalizedType, $adminOnlyCategories);
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
+    $isModerator = (Auth::check() && Auth::user()->role === 'moderator');
 
     $useGrid = ($isBuySell || $isBorrow || in_array($normalizedType, ['services', 'places']));
     
@@ -64,7 +65,6 @@
         }
     }
 
-    // CALCULATE UNREAD MESSAGES FOR THE BADGE
     $unreadCount = 0;
     if (Auth::check()) {
         $unreadCount = \App\Models\Message::where('is_read', false)
@@ -81,6 +81,17 @@
 @endphp
 
 <body class="bg-slate-50 font-sans antialiased min-h-screen text-slate-900 overflow-x-hidden">
+
+    @if(session('success'))
+        <div class="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-green-50 border border-green-200 text-green-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
+            <i class="fas fa-check-circle text-xl"></i> <span class="font-bold text-sm">{{ session('success') }}</span>
+        </div>
+    @endif
+    @if(session('error'))
+        <div class="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-red-50 border border-red-200 text-red-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
+            <i class="fas fa-exclamation-circle text-xl"></i> <span class="font-bold text-sm">{{ session('error') }}</span>
+        </div>
+    @endif
 
     <nav class="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-100 px-6 py-4">
         <div class="max-w-6xl mx-auto flex items-center gap-4">
@@ -107,7 +118,7 @@
                 <button type="submit" class="hidden md:block bg-slate-100 text-slate-400 px-6 rounded-2xl font-bold text-xs hover:bg-[#36B3C9] hover:text-white transition">Search</button>
             </form>
             
-            @if(!$isRequest && (!$isAdminOnly || $isAdmin))
+            @if(!$isRequest && (!$isAdminOnly || $isAdmin || $isModerator))
                 <button onclick="toggleModal('addModal')" class="bg-[#36B3C9] text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-cyan-100 transition hover:brightness-110 active:scale-95 flex items-center gap-2">
                     @if($isComplaint)
                         <i class="fas fa-exclamation-triangle"></i> <span class="hidden md:inline">File a Complaint</span>
@@ -260,7 +271,7 @@
                         </div>
                     @endif
 
-                    @if($isAdmin || Auth::id() === $post->user_id)
+                    @if($isAdmin || $isModerator || Auth::id() === $post->user_id)
                         <button onclick="event.stopPropagation(); triggerDelete({{ $post->id }})" class="absolute top-4 right-4 text-slate-200 hover:text-red-500 p-2 transition opacity-0 group-hover:opacity-100 bg-white/80 rounded-full hover:bg-white shadow-sm backdrop-blur-sm z-10">
                             <i class="fas fa-trash-alt"></i>
                         </button>
@@ -430,9 +441,11 @@
                 </div>
                 <div id="detDesc" class="bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100 hidden"></div>
                 <div id="adminAppointmentControls"></div>
+                
                 <div class="grid grid-cols-2 gap-4 mt-8">
                     <div id="contactButtonContainer"></div>
                     <div id="detDeleteContainer"></div>
+                    <div id="detReportContainer" class="col-span-2"></div>
                 </div>
             </div>
         </div>
@@ -551,10 +564,10 @@
                     } else {
                         descEl.classList.add('hidden');
                     }
-                   
+                    
                     document.getElementById('detUser').innerText = d.user ? d.user.name : 'Neighbor';
                     document.getElementById('detDate').innerText = new Date(d.created_at).toLocaleDateString();
-                   
+                    
                     const titleContainer = document.getElementById('detTitleContainer');
                     const priceEl = document.getElementById('detPrice');
                     const isBuySell = (d.category.includes('buy') && d.category.includes('sell'));
@@ -637,20 +650,47 @@
                             }
                         }
                     }
-                   
+                    
                     const deleteArea = document.getElementById('detDeleteContainer');
-                    if(userRole === 'admin' || currentUserId === d.user_id) {
+                    if(userRole === 'admin' || userRole === 'moderator' || currentUserId === d.user_id) {
                         deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`;
                     } else { deleteArea.innerHTML = ''; }
+
+                    // --- NEW: REPORT RENDER LOGIC (Hide from Mods so they don't report, they just delete) ---
+                    const reportArea = document.getElementById('detReportContainer');
+                    if (currentUserId !== null && currentUserId !== d.user_id && userRole !== 'admin' && userRole !== 'moderator') {
+                        reportArea.innerHTML = `
+                            <form action="/post/${d.id}/report" method="POST" class="mt-4 flex flex-col sm:flex-row items-center gap-3 bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
+                                <input type="hidden" name="_token" value="${getCsrfToken()}">
+                                <div class="flex items-center text-red-400 font-black text-xs uppercase tracking-widest mr-2">
+                                    <i class="fas fa-flag mr-2"></i> Report
+                                </div>
+                                <div class="flex-1 w-full">
+                                    <select name="reason" required class="w-full text-xs font-bold text-slate-600 bg-white border-none rounded-xl focus:ring-2 focus:ring-red-200 cursor-pointer py-3 px-4 shadow-sm">
+                                        <option value="" disabled selected>Why are you reporting this?</option>
+                                        <option value="spam">Spam or Misleading</option>
+                                        <option value="harassment">Harassment or Abusive</option>
+                                        <option value="inappropriate">Inappropriate Content</option>
+                                        <option value="scam">Scam or Fraud</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-black text-[10px] uppercase tracking-widest px-6 py-3.5 rounded-xl transition shadow-md shadow-red-200 active:scale-95">
+                                    Submit
+                                </button>
+                            </form>
+                        `;
+                    } else {
+                        reportArea.innerHTML = '';
+                    }
 
                     const imgSection = document.getElementById('detailImageSection'); const imgContainer = document.getElementById('detImg');
                     let images = []; try { images = Array.isArray(d.image) ? d.image : (d.image ? JSON.parse(d.image) : []); } catch(e) { images = []; }
                     if (images.length > 0) { imgSection.classList.remove('hidden'); imgContainer.innerHTML = images.map(img => `<div class="w-full h-full flex-shrink-0 snap-center flex items-center justify-center bg-black"><img src="/uploads/${img}" class="max-w-full max-h-full object-contain"></div>`).join(''); totalImgs = images.length; currentIdx = 0; if(totalImgs <= 1) { document.getElementById('prevBtn').classList.add('hidden'); document.getElementById('nextBtn').classList.add('hidden'); } else { document.getElementById('prevBtn').classList.remove('hidden'); document.getElementById('nextBtn').classList.remove('hidden'); } } else { imgSection.classList.add('hidden'); }
-                   
+                    
                     if (document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal');
                 });
         }
-       
+        
         function triggerDelete(id) { document.getElementById('deleteForm').action = `/post/${id}`; if(!document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal'); toggleModal('deleteConfirmModal'); }
         function moveGallery(dir) { const c = document.getElementById('detImg'); currentIdx += dir; if (currentIdx < 0) currentIdx = totalImgs - 1; if (currentIdx >= totalImgs) currentIdx = 0; c.scrollTo({ left: c.clientWidth * currentIdx, behavior: 'smooth' }); }
 
@@ -813,9 +853,9 @@
                 .then(data => {
                     const messagesContainer = document.getElementById('chatMessages-' + postId);
                     if(!messagesContainer) return;
-                   
+                    
                     messagesContainer.innerHTML = '';
-                   
+                    
                     if(data.messages.length === 0) {
                         messagesContainer.innerHTML = '<div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Start the conversation!</div>';
                     }
@@ -824,7 +864,7 @@
                         // Pass the post_owner_id into the DOM appender so it knows who the seller is
                         appendMessageToDOM(postId, msg, data.current_user_id, data.post_owner_id);
                     });
-                   
+                    
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
                     if(initialMessage) {
@@ -862,7 +902,7 @@
             if (!body) return;
 
             input.value = '';
-           
+            
             fetch(`/api/chat/${postId}`, {
                 method: 'POST',
                 headers: {
@@ -890,7 +930,7 @@
         function appendMessageToDOM(postId, msg, currentUserId, postOwnerId) {
             const messagesContainer = document.getElementById('chatMessages-' + postId);
             if(!messagesContainer) return;
-           
+            
             if(messagesContainer.innerHTML.includes('Start the conversation')) {
                 messagesContainer.innerHTML = '';
             }
@@ -898,7 +938,7 @@
             const isMe = msg.user_id === currentUserId;
             const alignClass = isMe ? 'justify-end' : 'justify-start';
             let bgClass = isMe ? 'bg-[#36B3C9] text-white rounded-l-2xl rounded-tr-2xl' : 'bg-white border border-slate-200 text-slate-800 rounded-r-2xl rounded-tl-2xl';
-           
+            
             // Check for magic string tags
             let displayBody = msg.body;
             let extraHtml = '';
@@ -1011,7 +1051,7 @@
             const urlParams = new URLSearchParams(window.location.search);
             const postIdToOpen = urlParams.get('post');
             const chatIdToOpen = urlParams.get('chat');
-           
+            
             // Standard Post Link
             if (postIdToOpen) {
                 openDetail(postIdToOpen);

@@ -41,6 +41,8 @@
                                 <td class="px-6 py-4">
                                     @if($user->role === 'admin')
                                         <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-black uppercase tracking-widest"><i class="fas fa-shield-alt mr-1"></i> Admin</span>
+                                    @elseif($user->role === 'moderator')
+                                        <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-[10px] font-black uppercase tracking-widest"><i class="fas fa-gavel mr-1"></i> Mod</span>
                                     @else
                                         <span class="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest"><i class="fas fa-user mr-1"></i> User</span>
                                     @endif
@@ -55,6 +57,16 @@
                                 <td class="px-6 py-4 flex justify-end gap-2">
                                     
                                     @if($user->role !== 'admin')
+                                        
+                                        @if($user->role !== 'moderator')
+                                        <form action="{{ route('admin.users.promoteMod', $user->id) }}" method="POST" onsubmit="return confirm('Promote this user to Moderator? They will be able to review and resolve reported posts.');">
+                                            @csrf
+                                            <button type="submit" class="text-blue-600 hover:text-white font-black text-[10px] uppercase tracking-widest bg-blue-50 hover:bg-blue-600 px-3 py-2 rounded-lg transition">
+                                                Make Mod
+                                            </button>
+                                        </form>
+                                        @endif
+
                                         <form action="{{ route('admin.users.promote', $user->id) }}" method="POST" onsubmit="return confirm('Are you sure you want to make this user an Admin? They will have full control over the system.');">
                                             @csrf
                                             <button type="submit" class="text-purple-600 hover:text-white font-black text-[10px] uppercase tracking-widest bg-purple-50 hover:bg-purple-600 px-3 py-2 rounded-lg transition">

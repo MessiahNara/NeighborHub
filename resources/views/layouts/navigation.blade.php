@@ -13,13 +13,23 @@
                         {{ __('NeighborHub') }}
                     </x-nav-link>
 
-                    @if(Auth::check() && strtolower(trim(Auth::user()->role)) === 'admin')
-                        <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
-                            {{ __('Admin Dashboard') }}
-                        </x-nav-link>
-                        
-                        <x-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
-                            {{ __('Manage Users') }}
+                    @php
+                        $userRole = Auth::check() ? strtolower(trim(Auth::user()->role)) : 'user';
+                    @endphp
+
+                    @if($userRole === 'admin' || $userRole === 'moderator')
+                        @if($userRole === 'admin')
+                            <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
+                                {{ __('Admin Dashboard') }}
+                            </x-nav-link>
+                            
+                            <x-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
+                                {{ __('Manage Users') }}
+                            </x-nav-link>
+                        @endif
+
+                        <x-nav-link :href="route('admin.reports')" :active="request()->routeIs('admin.reports')">
+                            {{ __('Reported Content') }}
                         </x-nav-link>
                     @endif
                 </div>
@@ -72,12 +82,17 @@
                 {{ __('NeighborHub') }}
             </x-responsive-nav-link>
 
-            @if(Auth::check() && strtolower(trim(Auth::user()->role)) === 'admin')
-                <x-responsive-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
-                    {{ __('Admin Dashboard') }}
-                </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
-                    {{ __('Manage Users') }}
+            @if($userRole === 'admin' || $userRole === 'moderator')
+                @if($userRole === 'admin')
+                    <x-responsive-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
+                        {{ __('Admin Dashboard') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
+                        {{ __('Manage Users') }}
+                    </x-responsive-nav-link>
+                @endif
+                <x-responsive-nav-link :href="route('admin.reports')" :active="request()->routeIs('admin.reports')">
+                    {{ __('Reported Content') }}
                 </x-responsive-nav-link>
             @endif
         </div>

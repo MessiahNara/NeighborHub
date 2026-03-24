@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Post;
 use App\Models\Like;
+use App\Models\Report; // <--- ADDED REPORT MODEL
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -51,5 +52,36 @@ class PostController extends Controller
             'liked' => $liked,
             'count' => $post->likes()->count()
         ]);
+    }
+
+    // --- NEW: REPORT A POST ---
+    public function report(Request $request, Post $post)
+    {
+        // Validate the incoming report data
+        $request->validate([
+            'reason' => 'required|string|max:255',
+            'details' => 'nullable|string|max:1000',
+        ]);
+
+        // Prevent spamming: Check if this user already reported this post and it's still pending
+        $existingReport = Report::where('user_id', Auth::id())
+                            ->where('post_id', $post->id)
+                            ->where('status', 'pending')
+                            ->first();
+
+        if ($existingReport) {
+            return back()->with('error', 'You have already reported this post. Our admins are looking into it.');
+        }
+
+        // Create the report in the database
+        Report::create([
+            'user_id' => Auth::id(),
+            'post_id' => $post->id,
+            'reason' => $request->reason,
+            'details' => $request->details,
+            'status' => 'pending',
+        ]);
+
+        return back()->with('success', 'Post reported successfully. Thank you for keeping our community safe.');
     }
 }

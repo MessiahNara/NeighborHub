@@ -31,16 +31,28 @@
                     <i class="fas fa-user-circle mr-4 text-lg"></i> My Profile
                 </a>
 
-                @if(Auth::check() && strtolower(trim(Auth::user()->role)) === 'admin')
-                    <div class="pt-4 pb-2">
-                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-4 mb-2">Admin Tools</p>
-                        
-                        <a href="{{ route('admin.dashboard') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.dashboard') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
-                            <i class="fas fa-chart-line mr-4 text-lg"></i> Admin Panel
-                        </a>
+                @php
+                    $userRole = Auth::check() ? strtolower(trim(Auth::user()->role)) : 'user';
+                @endphp
 
-                        <a href="{{ route('admin.users') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.users') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
-                            <i class="fas fa-users-cog mr-4 text-lg"></i> Manage Users
+                @if($userRole === 'admin' || $userRole === 'moderator')
+                    <div class="pt-4 pb-2">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-4 mb-2">
+                            {{ $userRole === 'admin' ? 'Admin Tools' : 'Mod Tools' }}
+                        </p>
+                        
+                        @if($userRole === 'admin')
+                            <a href="{{ route('admin.dashboard') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.dashboard') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
+                                <i class="fas fa-chart-line mr-4 text-lg"></i> Admin Panel
+                            </a>
+
+                            <a href="{{ route('admin.users') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.users') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
+                                <i class="fas fa-users-cog mr-4 text-lg"></i> Manage Users
+                            </a>
+                        @endif
+
+                        <a href="{{ route('admin.reports') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.reports') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
+                            <i class="fas fa-flag mr-4 text-lg"></i> Reported Content
                         </a>
                     </div>
                 @endif

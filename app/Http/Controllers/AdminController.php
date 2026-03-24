@@ -64,6 +64,20 @@ class AdminController extends Controller
         return back()->with('success', "{$user->name} has been promoted to Admin.");
     }
 
+    // --- NEW: Method to promote users to Moderator ---
+    public function promoteMod(User $user)
+    {
+        if ($user->role === 'admin' || $user->role === 'moderator') {
+            return back()->with('error', 'User already has elevated privileges.');
+        }
+
+        $user->role = 'moderator';
+        $user->is_banned = false; 
+        $user->save();
+
+        return back()->with('success', "{$user->name} has been promoted to Moderator.");
+    }
+
     public function deletePost(Post $post)
     {
         if ($post->image) {
@@ -80,5 +94,53 @@ class AdminController extends Controller
         
         $post->delete();
         return back()->with('success', 'Post deleted by Admin.');
+    }
+
+    // 1. Show the Reports Page
+    public function reports()
+    {
+        // Get all pending reports, and eager load the post and users for performance
+        $reports = \App\Models\Report::with(['post', 'user', 'post.user'])
+            ->where('status', 'pending')
+            ->latest()
+            ->get();
+
+        return view('admin.reports', compact('reports'));
+    }
+
+    // 2. Resolve a Report (Delete the offending post)
+    public function resolveReport(\App\Models\Report $report)
+    {
+        $post = $report->post;
+
+        if ($post) {
+            // Delete post images if any exist
+            if ($post->image) {
+                $images = is_array($post->image) ? $post->image : json_decode($post->image, true);
+                if (is_array($images)) {
+                    foreach ($images as $img) {
+                        $filePath = public_path('uploads/' . $img);
+                        if (\Illuminate\Support\Facades\File::exists($filePath)) {
+                            \Illuminate\Support\Facades\File::delete($filePath);
+                        }
+                    }
+                }
+            }
+            // Delete the post itself
+            $post->delete();
+        }
+
+        // Find ALL pending reports for this specific post and mark them as resolved
+        \App\Models\Report::where('post_id', $report->post_id)->update(['status' => 'resolved']);
+
+        return back()->with('success', 'Post deleted and report(s) marked as resolved.');
+    }
+
+    // 3. Dismiss a Report (The post is fine, ignore the report)
+    public function dismissReport(\App\Models\Report $report)
+    {
+        $report->update(['status' => 'dismissed']);
+        
+        return back()->with('success', 'Report dismissed. The post remains visible.');
     }
 }
