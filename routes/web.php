@@ -60,6 +60,9 @@ Route::middleware(['auth', 'verified', IsAdmin::class])->prefix('admin')->name('
     Route::post('/users/{user}/toggle-ban', [AdminController::class, 'toggleBan'])->name('users.toggleBan');
     Route::post('/users/{user}/promote', [AdminController::class, 'promote'])->name('users.promote');
     Route::post('/users/{user}/promote-mod', [AdminController::class, 'promoteMod'])->name('users.promoteMod');
+    
+    // 👇 NEW: Route for manually creating users 👇
+    Route::post('/users/create', [AdminController::class, 'createUser'])->name('users.create');
 });
 
 // ---------------------------------------------------------

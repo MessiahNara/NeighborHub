@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Post;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Hash;
 
 class AdminController extends Controller
 {
@@ -35,6 +36,28 @@ class AdminController extends Controller
     {
         $users = User::latest()->get();
         return view('admin.users', compact('users'));
+    }
+
+    // --- NEW: Manually Create a User ---
+    public function createUser(Request $request)
+    {
+        $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'string', 'min:8'],
+            'role' => ['required', 'in:user,moderator,admin'],
+        ]);
+
+        User::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+            'role' => $request->role,
+            'email_verified_at' => now(), // <--- Auto-verifies the account!
+            'is_banned' => false,
+        ]);
+
+        return back()->with('success', "Account for {$request->name} has been created successfully!");
     }
 
     public function toggleBan(User $user)
@@ -93,7 +116,7 @@ class AdminController extends Controller
         }
         
         $post->delete();
-        return back()->with('success', 'Post deleted by Admin.');
+        return back()->with('success', 'Post deleted.');
     }
 
     // 1. Show the Reports Page
@@ -120,8 +143,8 @@ class AdminController extends Controller
                 if (is_array($images)) {
                     foreach ($images as $img) {
                         $filePath = public_path('uploads/' . $img);
-                        if (\Illuminate\Support\Facades\File::exists($filePath)) {
-                            \Illuminate\Support\Facades\File::delete($filePath);
+                        if (File::exists($filePath)) {
+                            File::delete($filePath);
                         }
                     }
                 }
