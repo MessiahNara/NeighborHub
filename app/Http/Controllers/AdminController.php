@@ -166,4 +166,38 @@ class AdminController extends Controller
         
         return back()->with('success', 'Report dismissed. The post remains visible.');
     }
+
+    // ==========================================
+    // --- DYNAMIC TAG MANAGEMENT ---
+    // ==========================================
+
+    public function tags()
+    {
+        $tags = \App\Models\Tag::latest()->get();
+        // We use your exact existing category slugs
+        $categories = ['buy-sell', 'borrow', 'events', 'services', 'places', 'announcements', 'complaints', 'requests'];
+        
+        return view('admin.tags', compact('tags', 'categories'));
+    }
+
+    public function storeTag(Request $request)
+    {
+        $request->validate([
+            'category_slug' => 'required|string',
+            'name' => 'required|string|max:255',
+        ]);
+
+        \App\Models\Tag::create([
+            'category_slug' => $request->category_slug,
+            'name' => $request->name,
+        ]);
+
+        return back()->with('success', 'New tag added successfully!');
+    }
+
+    public function deleteTag(\App\Models\Tag $tag)
+    {
+        $tag->delete();
+        return back()->with('success', 'Tag removed successfully!');
+    }
 }

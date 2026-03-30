@@ -15,8 +15,9 @@ class DashboardController extends Controller
      */
     public function index()
     {
-        // Check if the current user is an admin
-        $isAdmin = Auth::check() && Auth::user()->role === 'admin';
+        // Check if the current user is an Admin OR a Moderator
+        $userRole = Auth::check() ? strtolower(trim(Auth::user()->role)) : 'user';
+        $hasElevatedAccess = in_array($userRole, ['admin', 'moderator']);
         $userId = Auth::id();
 
         $counts = [
@@ -26,16 +27,16 @@ class DashboardController extends Controller
             'services'   => Post::where('category', 'services')->count(),
             'announce'   => Post::where('category', 'announcements')->count(),
             
-            // Only count these if the user is an admin. Otherwise, send 'null' (empty).
-            'places'     => $isAdmin ? Post::where('category', 'places')->count() : null,
-            'complaints' => $isAdmin ? Post::where('category', 'complaints')->count() : null,
-            'requests'   => $isAdmin ? Post::where('category', 'requests')->count() : null,
+            // Allow BOTH Admins and Moderators to see these counts
+            'places'     => $hasElevatedAccess ? Post::where('category', 'places')->count() : null,
+            'complaints' => $hasElevatedAccess ? Post::where('category', 'complaints')->count() : null,
+            'requests'   => $hasElevatedAccess ? Post::where('category', 'requests')->count() : null,
         ];
 
         // Start building the recent updates query
         $recentUpdatesQuery = Post::with('user');
 
-        if ($isAdmin) {
+        if ($hasElevatedAccess) {
             $recentUpdatesQuery->where('user_id', '!=', $userId)->orderBy('created_at', 'desc');
         } else {
             $recentUpdatesQuery->where(function($query) use ($userId) {
@@ -86,7 +87,10 @@ class DashboardController extends Controller
         // Privacy control for requests and complaints
         $privateCategories = ['requests', 'complaints'];
         if (in_array($dbCategory, $privateCategories)) {
-            if (Auth::user()->role !== 'admin') {
+            $userRole = Auth::check() ? strtolower(trim(Auth::user()->role)) : 'user';
+            
+            // Hide private posts IF the user is NOT an Admin AND NOT a Moderator
+            if (!in_array($userRole, ['admin', 'moderator'])) {
                 $query->where('user_id', Auth::id());
             }
         }
@@ -120,6 +124,12 @@ class DashboardController extends Controller
             'price'       => 'nullable|numeric',
             'event_date'  => 'nullable|date',
             'tags'        => 'nullable|array', 
+            
+            // 👇 NEW: Validation for the interactive pinpoint map 👇
+            'location'    => 'nullable|string|max:255',
+            'latitude'    => 'nullable|numeric',
+            'longitude'   => 'nullable|numeric',
+            
             'images.*'    => 'image|mimes:jpeg,png,jpg,gif|max:2048'
         ];
 
@@ -133,11 +143,14 @@ class DashboardController extends Controller
 
         $adminOnlyCategories = ['announce', 'announcements', 'event', 'events'];
         
-        if (in_array($request->category, $adminOnlyCategories) && Auth::user()->role !== 'admin') {
-            return back()->with('error', 'Only administrators can post in the Announcements or Events category.');
+        // Allow Moderators to post globally as well
+        $userRole = Auth::user()->role;
+        if (in_array($request->category, $adminOnlyCategories) && !in_array($userRole, ['admin', 'moderator'])) {
+            return back()->with('error', 'Only administrators and moderators can post in the Announcements or Events category.');
         }
 
-        $data = $request->only(['title', 'category', 'description', 'price', 'condition', 'event_date', 'tags']);
+        // 👇 NEW: Added location, latitude, and longitude to the data extraction 👇
+        $data = $request->only(['title', 'category', 'description', 'price', 'condition', 'event_date', 'tags', 'location', 'latitude', 'longitude']);
         
         if ($data['category'] === 'announce') {
             $data['category'] = 'announcements';
@@ -163,13 +176,14 @@ class DashboardController extends Controller
     }
 
     /**
-     * Update the status and appointment date of a request (Admin Only)
+     * Update the status and appointment date of a request (Admin/Mod Only)
      */
     public function updateStatus(Request $request, $id)
     {
         $post = Post::findOrFail($id);
+        $userRole = Auth::user()->role;
 
-        if (Auth::user()->role !== 'admin') {
+        if (!in_array($userRole, ['admin', 'moderator'])) {
             return abort(403, 'Unauthorized action.');
         }
 
@@ -192,8 +206,9 @@ class DashboardController extends Controller
     public function destroy($id)
     {
         $post = Post::findOrFail($id);
+        $userRole = Auth::user()->role;
 
-        if (Auth::user()->role === 'admin' || Auth::id() === $post->user_id) {
+        if (in_array($userRole, ['admin', 'moderator']) || Auth::id() === $post->user_id) {
             if ($post->image) {
                 $images = is_array($post->image) ? $post->image : json_decode($post->image, true);
                 if (is_array($images)) {

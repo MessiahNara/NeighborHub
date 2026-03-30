@@ -9,7 +9,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
-    <title>NeighborHub | {{ str_replace(['_', '-'], ' ', $type) }}</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <title>NeighborHub | {{ str_replace(['_', '-'], ' ', $type ?? 'category') }}</title>
     <style>
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         #detImg { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
@@ -22,18 +25,50 @@
         .fc-daygrid-event { background-color: #36B3C9; border: none; border-radius: 6px; padding: 2px 6px; cursor: pointer; }
         .fc-day-today { background-color: #f1fbfd !important; border-radius: 1.5rem; }
         .tag-checkbox:checked + label { background-color: #36B3C9; color: white; border-color: #36B3C9; }
+
+        /* Custom Styles for Map Labels (Names on top of pins) */
+        .leaflet-tooltip.landmark-label {
+            background: rgba(255, 255, 255, 0.95);
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            font-weight: 900;
+            color: #1e293b;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 4px 10px;
+        }
+        .leaflet-tooltip-top.landmark-label::before { border-top-color: rgba(255, 255, 255, 0.95); }
+        
+        .leaflet-tooltip.welcome-label {
+            background: #e11d48; /* Red 600 */
+            color: white;
+            border: 2px solid white;
+            border-radius: 9999px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            font-weight: 900;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 6px 14px;
+        }
+        .leaflet-tooltip-top.welcome-label::before { border-top-color: #e11d48; }
     </style>
 </head>
 
 @php
     $normalizedType = str_replace('_', '-', $type);
     
+    $isPlaces    = ($normalizedType === 'places');
     $isBuySell   = (str_contains($normalizedType, 'buy') && str_contains($normalizedType, 'sell'));
     $isBorrow    = ($normalizedType === 'borrow');
     $isEvent     = in_array($normalizedType, ['event', 'events']);
     $isComplaint = ($normalizedType === 'complaints');
     $isRequest   = ($normalizedType === 'requests');
     
+    $showLocation = in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'events', 'places', 'complaints']);
+
     $adminOnlyCategories = ['events', 'places', 'announcements', 'announce', 'event'];
     $isAdminOnly = in_array($normalizedType, $adminOnlyCategories);
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
@@ -41,26 +76,24 @@
 
     $useGrid = ($isBuySell || $isBorrow || in_array($normalizedType, ['services', 'places']));
     
-    $availableTags = [];
-    if($isBuySell) {
-        $availableTags = ['Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Books', 'Tools', 'Appliances', 'Other'];
-    } elseif($isBorrow) {
-        $availableTags = ['Tools', 'Garden', 'Kitchen', 'Party Supplies', 'Books', 'Camping', 'Tech', 'Other'];
-    } elseif($normalizedType === 'services') {
-        $availableTags = ['Cleaning', 'Repairs', 'Tutoring', 'Delivery', 'Pet Care', 'Other'];
-    } elseif($isComplaint) {
-        $availableTags = ['Noise', 'Waste Disposal', 'Security', 'Dispute', 'Vandalism', 'Other'];
-    }
+    $searchSlug = $normalizedType;
+    if($searchSlug === 'announce') $searchSlug = 'announcements';
+    if($searchSlug === 'request')  $searchSlug = 'requests';
+    if($searchSlug === 'event')    $searchSlug = 'events';
 
+    $availableTags = \App\Models\Tag::where('category_slug', $searchSlug)->pluck('name')->toArray();
+    
     $calendarEvents = [];
     if($isEvent) {
         foreach($posts as $p) {
             if($p->event_date) {
-                $calendarEvents[] = [
-                    'id' => $p->id,
-                    'title' => $p->title,
-                    'start' => \Carbon\Carbon::parse($p->event_date)->format('Y-m-d'),
-                ];
+                try {
+                    $calendarEvents[] = [
+                        'id' => $p->id,
+                        'title' => $p->title,
+                        'start' => \Carbon\Carbon::parse($p->event_date)->format('Y-m-d'),
+                    ];
+                } catch(\Exception $e) {}
             }
         }
     }
@@ -83,12 +116,12 @@
 <body class="bg-slate-50 font-sans antialiased min-h-screen text-slate-900 overflow-x-hidden">
 
     @if(session('success'))
-        <div class="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-green-50 border border-green-200 text-green-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
+        <div id="flash-message" class="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-green-50 border border-green-200 text-green-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
             <i class="fas fa-check-circle text-xl"></i> <span class="font-bold text-sm">{{ session('success') }}</span>
         </div>
     @endif
     @if(session('error'))
-        <div class="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-red-50 border border-red-200 text-red-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
+        <div id="flash-message" class="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-red-50 border border-red-200 text-red-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
             <i class="fas fa-exclamation-circle text-xl"></i> <span class="font-bold text-sm">{{ session('error') }}</span>
         </div>
     @endif
@@ -114,11 +147,16 @@
                     @endforeach
                 </select>
                 @endif
-                
                 <button type="submit" class="hidden md:block bg-slate-100 text-slate-400 px-6 rounded-2xl font-bold text-xs hover:bg-[#36B3C9] hover:text-white transition">Search</button>
             </form>
             
-            @if(!$isRequest && (!$isAdminOnly || $isAdmin || $isModerator))
+            @if($isPlaces)
+                @if($isAdmin)
+                    <button onclick="toggleModal('addModal')" class="bg-[#36B3C9] text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-cyan-100 transition hover:brightness-110 active:scale-95 flex items-center gap-2">
+                        <i class="fas fa-map-pin"></i> <span class="hidden md:inline">Add Landmark</span>
+                    </button>
+                @endif
+            @elseif(!$isRequest && (!$isAdminOnly || $isAdmin || $isModerator))
                 <button onclick="toggleModal('addModal')" class="bg-[#36B3C9] text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-cyan-100 transition hover:brightness-110 active:scale-95 flex items-center gap-2">
                     @if($isComplaint)
                         <i class="fas fa-exclamation-triangle"></i> <span class="hidden md:inline">File a Complaint</span>
@@ -131,6 +169,8 @@
     </nav>
 
     <div class="max-w-6xl mx-auto p-6 pb-24">
+        
+        @if(!$isPlaces)
         <div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
             <div>
                 <h1 class="text-5xl font-black uppercase tracking-tighter text-slate-800 leading-none">{{ str_replace(['_', '-'], ' ', $type) }}</h1>
@@ -141,17 +181,12 @@
 
             @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'requests', 'complaints']))
                 <div class="flex bg-slate-200/50 p-1 rounded-2xl">
-                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}"
-                       class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ !request('my_posts') ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
-                        All
-                    </a>
-                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => '1']) }}"
-                       class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ request('my_posts') == '1' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
-                        My Posts
-                    </a>
+                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}" class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ !request('my_posts') ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">All</a>
+                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => '1']) }}" class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ request('my_posts') == '1' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">My Posts</a>
                 </div>
             @endif
         </div>
+        @endif
 
         @if($isEvent)
             <div class="relative z-10 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-12 p-3">
@@ -159,70 +194,48 @@
             </div>
         @endif
 
+        @if($isPlaces)
+            <div class="relative z-10 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-12 p-4">
+                <div class="flex justify-between items-center px-4 pt-2 pb-4">
+                    <h2 class="text-3xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
+                        <i class="fas fa-map-marked-alt text-[#36B3C9]"></i> Baybay Polong Map
+                    </h2>
+                    <p class="text-slate-400 font-bold text-xs uppercase tracking-widest hidden md:block">Click any pin for details</p>
+                </div>
+                <div id="placesMap" class="w-full h-[60vh] rounded-[2rem] z-0 bg-slate-900"></div>
+            </div>
+        @endif
+
         @if($isRequest)
             <h2 class="text-2xl font-black text-slate-800 mb-4 uppercase tracking-tighter">Files Available to Request</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-                <div onclick="openRequestModal('Certificate of Residency')" class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-2 transition cursor-pointer group flex items-center gap-4">
-                    <div class="bg-blue-50 text-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition"><i class="fas fa-home"></i></div>
-                    <div>
-                        <h3 class="font-black text-lg text-slate-800 leading-tight group-hover:text-blue-500 transition">Certificate of Residency</h3>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p>
-                    </div>
-                </div>
-                <div onclick="openRequestModal('Certificate of Indigency')" class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-2 transition cursor-pointer group flex items-center gap-4">
-                    <div class="bg-green-50 text-green-500 w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition"><i class="fas fa-hands-helping"></i></div>
-                    <div>
-                        <h3 class="font-black text-lg text-slate-800 leading-tight group-hover:text-green-500 transition">Certificate of Indigency</h3>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p>
-                    </div>
-                </div>
-                <div onclick="openRequestModal('Barangay Clearance')" class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-2 transition cursor-pointer group flex items-center gap-4">
-                    <div class="bg-purple-50 text-purple-500 w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition"><i class="fas fa-stamp"></i></div>
-                    <div>
-                        <h3 class="font-black text-lg text-slate-800 leading-tight group-hover:text-purple-500 transition">Barangay Clearance</h3>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p>
-                    </div>
-                </div>
+                <div onclick="openRequestModal('Certificate of Residency')" class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-2 transition cursor-pointer group flex items-center gap-4"><div class="bg-blue-50 text-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition"><i class="fas fa-home"></i></div><div><h3 class="font-black text-lg text-slate-800 leading-tight group-hover:text-blue-500 transition">Certificate of Residency</h3><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p></div></div>
+                <div onclick="openRequestModal('Certificate of Indigency')" class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-2 transition cursor-pointer group flex items-center gap-4"><div class="bg-green-50 text-green-500 w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition"><i class="fas fa-hands-helping"></i></div><div><h3 class="font-black text-lg text-slate-800 leading-tight group-hover:text-green-500 transition">Certificate of Indigency</h3><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p></div></div>
+                <div onclick="openRequestModal('Barangay Clearance')" class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-2 transition cursor-pointer group flex items-center gap-4"><div class="bg-purple-50 text-purple-500 w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition"><i class="fas fa-stamp"></i></div><div><h3 class="font-black text-lg text-slate-800 leading-tight group-hover:text-purple-500 transition">Barangay Clearance</h3><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p></div></div>
             </div>
             <h2 class="text-2xl font-black text-slate-800 mb-4 uppercase tracking-tighter">Your Recent Requests</h2>
         @endif
 
+        @if(!$isPlaces)
         <div class="relative z-10 {{ $useGrid ? 'grid grid-cols-2 md:grid-cols-4 gap-6' : 'space-y-4' }}" id="postsContainer">
             @forelse($posts as $post)
                 <div onclick="openDetail({{ $post->id }})" class="post-item cursor-pointer bg-white p-5 rounded-[2.5rem] border border-slate-50 shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group relative {{ !$useGrid ? 'flex justify-between items-center' : '' }}">
                     @if(!$useGrid)
                         <div class="flex items-center gap-6">
-                            <div class="bg-slate-50 text-[#36B3C9] h-20 w-20 rounded-[1.8rem] flex items-center justify-center transition group-hover:bg-[#36B3C9] group-hover:text-white group-hover:rotate-6">
-                                <i class="fas {{ str_contains($normalizedType, 'complaint') ? 'fa-exclamation-triangle' : (str_contains($normalizedType, 'request') ? 'fa-file-signature' : (str_contains($normalizedType, 'event') ? 'fa-calendar-check' : 'fa-bullhorn')) }} text-2xl"></i>
-                            </div>
+                            <div class="bg-slate-50 text-[#36B3C9] h-20 w-20 rounded-[1.8rem] flex items-center justify-center transition group-hover:bg-[#36B3C9] group-hover:text-white group-hover:rotate-6"><i class="fas {{ str_contains($normalizedType, 'complaint') ? 'fa-exclamation-triangle' : (str_contains($normalizedType, 'request') ? 'fa-file-signature' : (str_contains($normalizedType, 'event') ? 'fa-calendar-check' : 'fa-bullhorn')) }} text-2xl"></i></div>
                             <div>
                                 <p class="font-black text-2xl text-slate-800 leading-tight mb-1 group-hover:text-[#36B3C9] transition">{{ $post->title }}</p>
-                                
                                 @if($isRequest || $isComplaint)
-                                    <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2
-                                        {{ ($post->status ?? 'pending') === 'approved' ? 'bg-green-100 text-green-600' :
-                                           (($post->status ?? 'pending') === 'completed' ? 'bg-blue-100 text-blue-600' :
-                                           (($post->status ?? 'pending') === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600')) }}">
-                                        {{ $post->status ?? 'Pending' }}
-                                    </span>
+                                    <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2 {{ ($post->status ?? 'pending') === 'approved' ? 'bg-green-100 text-green-600' : (($post->status ?? 'pending') === 'completed' ? 'bg-blue-100 text-blue-600' : (($post->status ?? 'pending') === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600')) }}">{{ $post->status ?? 'Pending' }}</span>
                                 @endif
-
                                 <div class="flex flex-wrap gap-1 mb-2">
                                     @php $decodedTags = is_string($post->tags) ? json_decode($post->tags, true) : $post->tags; @endphp
-                                    @if(is_array($decodedTags))
-                                        @foreach($decodedTags as $t)
-                                            <span class="text-[8px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">{{ $t }}</span>
-                                        @endforeach
-                                    @endif
+                                    @if(is_array($decodedTags)) @foreach($decodedTags as $t) <span class="text-[8px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">{{ $t }}</span> @endforeach @endif
                                 </div>
                                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                    <span class="text-[#36B3C9]">{{ $post->user->name ?? 'Neighbor' }}</span>
-                                    <span class="h-1 w-1 bg-slate-200 rounded-full"></span>
-                                    @if($isEvent && $post->event_date)
-                                        <span class="text-orange-400">{{ \Carbon\Carbon::parse($post->event_date)->format('M d, Y') }}</span>
-                                    @else
-                                        {{ $post->created_at->diffForHumans() }}
-                                    @endif
+                                    <span class="text-[#36B3C9]">{{ $post->user->name ?? 'Neighbor' }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span>
+                                    @if($showLocation && $post->location) <span class="text-red-400 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span> @endif
+                                    @if($isEvent && $post->event_date) <span class="text-orange-400">{{ \Carbon\Carbon::parse($post->event_date)->format('M d, Y') }}</span> @else {{ $post->created_at->diffForHumans() }} @endif
                                 </p>
                             </div>
                         </div>
@@ -231,29 +244,17 @@
                             @php $imgs = is_array($post->image) ? $post->image : json_decode($post->image, true); @endphp
                             @if($imgs && count($imgs) > 0)
                                 <img src="{{ asset('uploads/' . $imgs[0]) }}" class="w-full h-full object-cover transition duration-700 group-hover:scale-110">
-                                @if(count($imgs) > 1)
-                                    <div class="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md text-slate-800 text-[9px] px-2 py-1 rounded-lg font-black shadow-sm">+{{ count($imgs) - 1 }}</div>
-                                @endif
+                                @if(count($imgs) > 1) <div class="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md text-slate-800 text-[9px] px-2 py-1 rounded-lg font-black shadow-sm">+{{ count($imgs) - 1 }}</div> @endif
                             @else
                                 <i class="fas fa-camera text-slate-200 text-4xl group-hover:text-[#36B3C9] transition"></i>
                             @endif
-
-                            <div class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md text-red-500 text-[10px] px-2 py-1 rounded-lg font-black shadow-sm flex items-center gap-1">
-                                <i class="fas fa-heart"></i> {{ $post->likes->count() }}
-                            </div>
-
+                            <div class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md text-red-500 text-[10px] px-2 py-1 rounded-lg font-black shadow-sm flex items-center gap-1"><i class="fas fa-heart"></i> {{ $post->likes->count() }}</div>
                             @if($post->tags)
                                 <div class="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[80%]">
                                     @php $displayTags = is_string($post->tags) ? json_decode($post->tags, true) : $post->tags; @endphp
                                     @if(is_array($displayTags))
-                                        @foreach(array_slice($displayTags, 0, 2) as $t)
-                                            <div class="bg-black/60 backdrop-blur-sm text-white text-[8px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">
-                                                {{ $t }}
-                                            </div>
-                                        @endforeach
-                                        @if(count($displayTags) > 2)
-                                            <div class="bg-black/60 backdrop-blur-sm text-white text-[8px] font-bold px-2 py-1 rounded-lg">+{{ count($displayTags) - 2 }}</div>
-                                        @endif
+                                        @foreach(array_slice($displayTags, 0, 2) as $t) <div class="bg-black/60 backdrop-blur-sm text-white text-[8px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">{{ $t }}</div> @endforeach
+                                        @if(count($displayTags) > 2) <div class="bg-black/60 backdrop-blur-sm text-white text-[8px] font-bold px-2 py-1 rounded-lg">+{{ count($displayTags) - 2 }}</div> @endif
                                     @endif
                                 </div>
                             @endif
@@ -261,54 +262,25 @@
                         <div class="px-1">
                             <p class="font-black text-slate-800 text-lg leading-tight truncate">{{ $post->title }}</p>
                             <div class="flex items-center justify-between mt-1">
-                                <p class="text-[10px] font-bold text-slate-300">{{ $post->user->name ?? 'User' }}</p>
-                                @if($isBuySell)
-                                    <p class="text-sm font-black text-[#36B3C9]">
-                                        @if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif
-                                    </p>
-                                @endif
+                                <div class="flex flex-col">
+                                    <p class="text-[10px] font-bold text-slate-300">{{ $post->user->name ?? 'User' }}</p>
+                                    @if($showLocation && $post->location) <p class="text-[9px] font-bold text-red-400 mt-0.5 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
+                                </div>
+                                @if($isBuySell) <p class="text-sm font-black text-[#36B3C9]">@if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif</p> @endif
                             </div>
                         </div>
                     @endif
 
                     @if($isAdmin || $isModerator || Auth::id() === $post->user_id)
-                        <button onclick="event.stopPropagation(); triggerDelete({{ $post->id }})" class="absolute top-4 right-4 text-slate-200 hover:text-red-500 p-2 transition opacity-0 group-hover:opacity-100 bg-white/80 rounded-full hover:bg-white shadow-sm backdrop-blur-sm z-10">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
+                        <button onclick="event.stopPropagation(); triggerDelete({{ $post->id }})" class="absolute top-4 right-4 text-slate-200 hover:text-red-500 p-2 transition opacity-0 group-hover:opacity-100 bg-white/80 rounded-full hover:bg-white shadow-sm backdrop-blur-sm z-10"><i class="fas fa-trash-alt"></i></button>
                     @endif
                 </div>
-
-                @if(auth()->check() && auth()->id() !== $post->user_id)
-                <div id="chatBox-{{ $post->id }}" class="hidden fixed bottom-0 right-32 sm:right-40 w-80 bg-white border border-slate-200 shadow-2xl rounded-t-2xl flex-col z-[200]">
-                    <div class="bg-[#36B3C9] text-white p-4 rounded-t-2xl flex justify-between items-center cursor-pointer shadow-sm" onclick="toggleChatBody({{ $post->id }})">
-                        <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> {{ $post->title }}</span>
-                        <button onclick="closeChatBox({{ $post->id }}, event)" class="text-white hover:text-slate-200 text-lg leading-none transition">&times;</button>
-                    </div>
-                    <div id="chatBody-{{ $post->id }}" class="flex flex-col">
-                        <div id="chatMessages-{{ $post->id }}" class="h-64 overflow-y-auto p-4 bg-slate-50 flex flex-col gap-2">
-                            <div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Loading messages...</div>
-                        </div>
-                        <div class="p-3 border-t border-slate-100 bg-white">
-                            <form onsubmit="sendChatMessage(event, {{ $post->id }})" class="flex gap-2">
-                                <input type="text" id="chatInput-{{ $post->id }}" class="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-[#36B3C9] focus:ring-1 focus:ring-[#36B3C9] placeholder:text-slate-300 transition" placeholder="Write a message..." required autocomplete="off">
-                                <button type="submit" class="bg-[#36B3C9] text-white w-10 h-10 flex items-center justify-center rounded-2xl font-bold hover:brightness-110 active:scale-95 transition shadow-md shadow-cyan-100">
-                                    <i class="fas fa-paper-plane text-xs"></i>
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-                @endif
-                
             @empty
-                <div class="col-span-full py-32 text-center">
-                    <div class="bg-white inline-flex items-center justify-center w-24 h-24 rounded-[2.5rem] shadow-sm mb-6 text-slate-200">
-                        <i class="fas fa-folder-open text-4xl"></i>
-                    </div>
-                    <p class="text-slate-800 font-black text-2xl uppercase tracking-tighter">No Records Found</p>
-                </div>
+                <div class="col-span-full py-32 text-center"><div class="bg-white inline-flex items-center justify-center w-24 h-24 rounded-[2.5rem] shadow-sm mb-6 text-slate-200"><i class="fas fa-folder-open text-4xl"></i></div><p class="text-slate-800 font-black text-2xl uppercase tracking-tighter">No Records Found</p></div>
             @endforelse
         </div>
+        @endif
+
     </div>
 
     <div id="addModal" class="hidden fixed inset-0 z-[100] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md transition-all">
@@ -320,11 +292,17 @@
                 <p class="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-8">This report is strictly confidential to admins.</p>
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" enctype="multipart/form-data" class="space-y-5">
                     @csrf <input type="hidden" name="category" value="{{ $type }}">
-                    <input type="text" name="title" placeholder="Nature of Complaint (e.g. Noise Disturbance)" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
-                    <div class="bg-slate-50 p-5 rounded-[1.5rem]">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Date of Incident</label>
-                        <input type="date" name="event_date" class="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-slate-800" required>
+                    <input type="text" name="title" placeholder="Nature of Complaint (e.g. Noise Disturbance)" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800" required>
+                    
+                    <div class="bg-slate-50 rounded-[1.5rem] p-4 border border-slate-100">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2"><i class="fas fa-map-pin text-red-400 mr-1"></i> Pinpoint Location in Baybay Polong</label>
+                        <div id="formMap" class="w-full h-[180px] rounded-2xl z-0 mb-3 bg-slate-900"></div>
+                        <input type="hidden" name="latitude" id="inputLat">
+                        <input type="hidden" name="longitude" id="inputLng">
+                        <input type="text" name="location" placeholder="Location Name (e.g. Purok 4, near Plaza)" class="w-full p-4 bg-white rounded-xl border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-800" required>
                     </div>
+
+                    <div class="bg-slate-50 p-5 rounded-[1.5rem]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Date of Incident</label><input type="date" name="event_date" class="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-slate-800" required></div>
                     @if(!empty($availableTags))
                         <div>
                             <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Complaint Category</label>
@@ -338,73 +316,66 @@
                             </div>
                         </div>
                     @endif
-                    <textarea name="description" placeholder="Provide full details: Who was involved? Where did it happen? What exactly occurred?" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 placeholder:text-slate-300 min-h-[140px]" rows="4" required></textarea>
+                    <textarea name="description" placeholder="Provide full details: Who was involved? Where did it happen? What exactly occurred?" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 min-h-[140px]" rows="4" required></textarea>
 
             @elseif($isRequest)
                 <h2 id="requestModalTitle" class="text-3xl font-black mb-1 uppercase tracking-tighter text-[#36B3C9]">Request a File</h2>
                 <p class="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-8">Admin will schedule your pickup date once approved.</p>
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" onsubmit="prepareRequestDescription()" enctype="multipart/form-data" class="space-y-5">
                     @csrf <input type="hidden" name="category" value="{{ $type }}">
-                    <input type="hidden" name="title" id="requestDocType">
-                    <input type="hidden" name="description" id="requestActualDesc">
-                    <input type="text" id="reqName" placeholder="Full Legal Name" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
-                    <input type="text" id="reqAddress" placeholder="Complete Home Address" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
-                    <textarea id="reqPurpose" placeholder="Reason / Purpose for requesting this document" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 placeholder:text-slate-300 min-h-[120px]" rows="3" required></textarea>
+                    <input type="hidden" name="title" id="requestDocType"><input type="hidden" name="description" id="requestActualDesc">
+                    <input type="text" id="reqName" placeholder="Full Legal Name" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-black text-slate-800" required>
+                    <input type="text" id="reqAddress" placeholder="Complete Home Address" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-black text-slate-800" required>
+                    <textarea id="reqPurpose" placeholder="Reason for request" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold text-slate-800 min-h-[120px]" required></textarea>
 
             @else
-                <h2 class="text-3xl font-black mb-1 uppercase tracking-tighter text-[#36B3C9]">New Listing</h2>
+                <h2 class="text-3xl font-black mb-1 uppercase tracking-tighter text-[#36B3C9]">
+                    {{ $isPlaces ? 'Add Landmark' : 'New Listing' }}
+                </h2>
                 <p class="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-8">Category: {{ str_replace(['_', '-'], ' ', $type) }}</p>
                 <form action="{{ route('post.store') }}" method="POST" id="postForm" enctype="multipart/form-data" class="space-y-5">
                     @csrf <input type="hidden" name="category" value="{{ $type }}">
-                    <input type="text" name="title" placeholder="Item Name / Title" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300" required>
+                    <input type="text" name="title" placeholder="{{ $isPlaces ? 'Landmark Name (e.g. Town Plaza)' : 'Item Name / Title' }}" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-black text-slate-800" required>
                     
-                    @if($isBuySell)
-                    <select name="condition" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-500 cursor-pointer" required>
-                        <option value="" disabled selected>Select Condition</option>
-                        <option value="New">New</option>
-                        <option value="Like New">Like New</option>
-                        <option value="Good">Good</option>
-                        <option value="Fair">Fair</option>
-                        <option value="Poor">Poor</option>
-                    </select>
+                    @if($showLocation)
+                    <div class="bg-slate-50 rounded-[1.5rem] p-4 border border-slate-100">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2"><i class="fas fa-map-pin text-red-400 mr-1"></i> Pinpoint Location in Baybay Polong</label>
+                        <div id="formMap" class="w-full h-[180px] rounded-2xl z-0 mb-3 bg-slate-900"></div>
+                        <input type="hidden" name="latitude" id="inputLat">
+                        <input type="hidden" name="longitude" id="inputLng">
+                        <input type="text" name="location" placeholder="Location Name (e.g. Zone 1, near Plaza)" class="w-full p-4 bg-white rounded-xl border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-800" required>
+                    </div>
                     @endif
 
-                    @if(!empty($availableTags))
-                        <div>
-                            <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Tags (Select Multiple)</label>
-                            <div class="grid grid-cols-2 gap-2">
-                                @foreach($availableTags as $tag)
-                                    <div class="relative">
-                                        <input type="checkbox" name="tags[]" value="{{ $tag }}" id="tag_{{ $tag }}" class="hidden tag-checkbox">
-                                        <label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer transition border border-transparent hover:bg-slate-100">{{ $tag }}</label>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-                    @if($isEvent)
-                        <div class="bg-slate-50 p-5 rounded-[1.5rem]">
-                            <label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-2">Event Date</label>
-                            <input type="date" name="event_date" class="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-slate-800" required>
-                        </div>
-                    @endif
                     @if($isBuySell) 
-                        <div class="relative">
-                            <span class="absolute left-5 top-5 text-slate-300 font-black">₱</span>
-                            <input type="number" name="price" step="0.01" placeholder="Price (Leave blank for Free)" class="w-full p-5 pl-10 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-black text-slate-800 placeholder:text-slate-300">
+                        <select name="condition" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold text-sm text-slate-500 cursor-pointer" required><option value="" disabled selected>Select Condition</option><option value="New">New</option><option value="Like New">Like New</option><option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option></select> 
+                    @elseif($isPlaces)
+                        <div class="bg-slate-50 p-4 rounded-[1.5rem] border border-slate-100">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2"><i class="fas fa-icons text-[#36B3C9] mr-1"></i> Landmark Icon</label>
+                            <select name="condition" class="w-full p-3 bg-white rounded-xl border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-700 cursor-pointer shadow-sm" required>
+                                <option value="" disabled selected>Select the type of landmark...</option>
+                                <option value="fa-map-pin">Default Pin</option>
+                                <option value="fa-store">Store / Sari-Sari / Shop</option>
+                                <option value="fa-utensils">Eatery / Food / Restaurant</option>
+                                <option value="fa-building">Barangay Hall / Plaza</option>
+                                <option value="fa-school">School / Daycare</option>
+                                <option value="fa-church">Church / Chapel</option>
+                                <option value="fa-plus-square">Clinic / Health Center</option>
+                            </select>
                         </div>
                     @endif
-                    <textarea name="description" placeholder="Description & Details..." class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-800 placeholder:text-slate-300 min-h-[140px]" rows="3"></textarea>
+                    
+                    @if(!empty($availableTags)) <div><label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-3 ml-2">Tags (Select Multiple)</label><div class="grid grid-cols-2 gap-2">@foreach($availableTags as $tag) <div class="relative"><input type="checkbox" name="tags[]" value="{{ $tag }}" id="tag_{{ $tag }}" class="hidden tag-checkbox"><label for="tag_{{ $tag }}" class="block text-center py-3 px-4 rounded-xl bg-slate-50 text-slate-500 text-xs font-bold cursor-pointer hover:bg-slate-100">{{ $tag }}</label></div> @endforeach</div></div> @endif
+                    @if($isEvent) <div class="bg-slate-50 p-5 rounded-[1.5rem]"><label class="text-[10px] font-black text-slate-300 uppercase tracking-widest block mb-2">Event Date</label><input type="date" name="event_date" class="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-slate-800" required></div> @endif
+                    @if($isBuySell) <div class="relative"><span class="absolute left-5 top-5 text-slate-300 font-black">₱</span><input type="number" name="price" step="0.01" placeholder="Price" class="w-full p-5 pl-10 bg-slate-50 rounded-[1.5rem] border-none font-black text-slate-800"></div> @endif
+                    <textarea name="description" placeholder="{{ $isPlaces ? 'Description of the landmark...' : 'Description & Details...' }}" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold text-slate-800 min-h-[140px]" rows="3"></textarea>
             @endif
 
-                <div class="border-2 border-dashed border-slate-100 rounded-[2rem] p-8 text-center group hover:border-[#36B3C9] hover:bg-slate-50 transition cursor-pointer relative mt-4">
+                <div class="border-2 border-dashed border-slate-100 rounded-[2rem] p-8 text-center group hover:border-[#36B3C9] hover:bg-slate-50 cursor-pointer relative mt-4">
                     <input type="file" name="images[]" id="imagesInput" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" multiple accept="image/*">
-                    <i class="fas fa-camera text-3xl text-slate-200 group-hover:text-[#36B3C9] mb-3 transition"></i>
-                    <span class="block text-[10px] font-black text-slate-300 uppercase tracking-widest group-hover:text-slate-500">
-                        @if($isComplaint) Attach Evidence Photos @else Add Photos @endif
-                    </span>
+                    <i class="fas fa-camera text-3xl text-slate-200 group-hover:text-[#36B3C9] mb-3"></i>
+                    <span class="block text-[10px] font-black text-slate-300 uppercase tracking-widest">Add Photos</span>
                 </div>
-                
                 <div id="imagePreviewContainer" class="grid grid-cols-4 gap-3"></div>
                 <button type="submit" class="w-full bg-[#36B3C9] text-white font-black py-5 rounded-[1.8rem] shadow-xl shadow-cyan-100 mt-4 transition hover:brightness-110 active:scale-95 uppercase tracking-widest text-xs">Submit</button>
             </form>
@@ -427,6 +398,7 @@
                         <div class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl"><i class="fas fa-user-circle"></i></div>
                         <div>
                             <p id="detUser" class="text-lg font-black text-slate-800 leading-none mb-1"></p>
+                            <p id="detLocation" class="text-[10px] font-black text-red-400 uppercase tracking-widest mt-1 mb-1 hidden"><i class="fas fa-map-marker-alt"></i> <span></span></p>
                             <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1"></p>
                         </div>
                     </div>
@@ -439,14 +411,16 @@
                     <div id="detConditionContainer"></div>
                     <div id="detTagsContainer" class="flex gap-2"></div> 
                 </div>
-                <div id="detDesc" class="bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap leading-relaxed mb-8 border border-slate-100 hidden"></div>
-                <div id="adminAppointmentControls"></div>
                 
-                <div class="grid grid-cols-2 gap-4 mt-8">
-                    <div id="contactButtonContainer"></div>
-                    <div id="detDeleteContainer"></div>
-                    <div id="detReportContainer" class="col-span-2"></div>
+                <div id="detDesc" class="bg-slate-50 p-6 rounded-[2rem] text-slate-600 text-sm font-medium whitespace-pre-wrap mb-6 border border-slate-100 hidden"></div>
+
+                <div id="detailMapContainer" class="hidden mb-8">
+                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-map-marked-alt text-[#36B3C9] text-lg"></i> Exact Pinpoint</h4>
+                    <div id="detailMap" class="w-full h-[250px] rounded-[2rem] z-0 border border-slate-100 shadow-sm bg-slate-900"></div>
                 </div>
+
+                <div id="adminAppointmentControls"></div>
+                <div class="grid grid-cols-2 gap-4 mt-8"><div id="contactButtonContainer"></div><div id="detDeleteContainer"></div><div id="detReportContainer" class="col-span-2"></div></div>
             </div>
         </div>
     </div>
@@ -475,16 +449,9 @@
         </div>
 
         <button onclick="toggleInboxPanel()" class="fixed bottom-10 right-10 z-[90] bg-[#36B3C9] text-white w-20 h-20 rounded-full flex items-center justify-center shadow-2xl shadow-cyan-300/50 hover:-translate-y-2 hover:brightness-110 active:scale-95 transition-all duration-300 group">
-            
             <i class="fas fa-comment-dots text-4xl"></i>
-            
-            <div id="unreadBadge" class="{{ $unreadCount > 0 ? '' : 'hidden' }} absolute top-0 right-0 bg-red-500 text-white text-xs font-black px-2.5 py-1 rounded-full shadow-md border-[3px] border-slate-50 min-w-[28px]">
-                {{ $unreadCount }}
-            </div>
-
-            <span class="absolute right-24 bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg">
-                Messages
-            </span>
+            <div id="unreadBadge" class="{{ $unreadCount > 0 ? '' : 'hidden' }} absolute top-0 right-0 bg-red-500 text-white text-xs font-black px-2.5 py-1 rounded-full shadow-md border-[3px] border-slate-50 min-w-[28px]">{{ $unreadCount }}</div>
+            <span class="absolute right-24 bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg">Messages</span>
         </button>
     @endif
 
@@ -492,9 +459,136 @@
         let currentIdx = 0; let totalImgs = 0; let selectedFiles = [];
         let currentDetailPostId = null;
 
+        // 👇 BOUNDING BOX SETUP FOR BAYBAY POLONG 👇
+        const baybayPolongCenter = [16.0300, 120.2588]; 
+        const baybayPolongBounds = L.latLngBounds(
+            [16.0250, 120.2480], // Tight SouthWest corner
+            [16.0360, 120.2680]  // Tight NorthEast corner
+        );
+        let formMap = null; let formMarker = null;
+        let detailMapObj = null; let detailMarker = null;
+
+        function getCustomIcon(iconCode, category) {
+            let icon = 'fa-map-pin';
+            let color = 'bg-[#36B3C9]'; 
+            
+            if (category === 'places' || category === '') {
+                icon = iconCode || 'fa-map-pin'; 
+                
+                if(icon === 'fa-store') color = 'bg-blue-500';
+                else if(icon === 'fa-utensils') color = 'bg-orange-500';
+                else if(icon === 'fa-building') color = 'bg-red-600';
+                else if(icon === 'fa-school') color = 'bg-green-500';
+                else if(icon === 'fa-church') color = 'bg-purple-500';
+                else if(icon === 'fa-plus-square') color = 'bg-rose-500';
+                else color = 'bg-red-500'; 
+            } 
+            else {
+                if (category === 'buy-sell' || category === 'buy_sell') { icon = 'fa-shopping-bag'; color = 'bg-blue-500'; }
+                else if (category === 'borrow') { icon = 'fa-hands-helping'; color = 'bg-green-500'; }
+                else if (category === 'services') { icon = 'fa-tools'; color = 'bg-orange-500'; }
+                else if (category === 'events') { icon = 'fa-calendar-alt'; color = 'bg-purple-500'; }
+                else if (category === 'complaints') { icon = 'fa-exclamation-triangle'; color = 'bg-red-600'; }
+                else if (category === 'requests') { icon = 'fa-file-signature'; color = 'bg-teal-500'; }
+            }
+
+            return L.divIcon({
+                className: 'custom-marker',
+                html: `<div class="${color} text-white w-10 h-10 flex items-center justify-center rounded-full shadow-[0_4px_10px_rgba(0,0,0,0.5)] border-2 border-white text-lg"><i class="fas ${icon}"></i></div>`,
+                iconSize: [40, 40],
+                iconAnchor: [20, 40]
+            });
+        }
+
+        function addCustomRoadLabel(mapInstance) {
+            L.marker([16.0330, 120.2588], { 
+                interactive: false, 
+                icon: L.divIcon({
+                    className: 'custom-road-label',
+                    html: `<div class="bg-red-600 text-white border-2 border-white px-5 py-2.5 rounded-full font-black text-[14px] uppercase tracking-widest whitespace-nowrap shadow-[0_4px_15px_rgba(0,0,0,0.5)] flex items-center justify-center gap-2">
+                              <i class="fas fa-star text-yellow-300"></i> Baybay Polong
+                           </div>`,
+                    iconSize: [220, 45],
+                    iconAnchor: [110, 22]
+                })
+            }).addTo(mapInstance);
+        }
+
         function toggleModal(id) {
             const modal = document.getElementById(id); modal.classList.toggle('hidden');
-            if(id === 'addModal' && modal.classList.contains('hidden')) resetUploadForm();
+            if(id === 'addModal' && !modal.classList.contains('hidden')) { 
+                setTimeout(() => { initFormMap(); }, 300); 
+            }
+            if(id === 'addModal' && modal.classList.contains('hidden')) {
+                resetUploadForm();
+            }
+        }
+
+        function initFormMap() {
+            if(!document.getElementById('formMap')) return;
+            if(!formMap) {
+                formMap = L.map('formMap', {
+                    center: baybayPolongCenter,
+                    zoom: 16,
+                    minZoom: 16,
+                    maxBounds: baybayPolongBounds,
+                    maxBoundsViscosity: 1.0
+                });
+                
+                L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 19,
+                    attribution: '© Esri'
+                }).addTo(formMap);
+
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 19,
+                    attribution: '© CartoDB'
+                }).addTo(formMap);
+                
+                addCustomRoadLabel(formMap); 
+
+                formMarker = L.marker(baybayPolongCenter).addTo(formMap);
+                document.getElementById('inputLat').value = baybayPolongCenter[0];
+                document.getElementById('inputLng').value = baybayPolongCenter[1];
+
+                formMap.on('click', function(e) {
+                    formMarker.setLatLng(e.latlng);
+                    document.getElementById('inputLat').value = e.latlng.lat;
+                    document.getElementById('inputLng').value = e.latlng.lng;
+                });
+            }
+            formMap.invalidateSize(); 
+        }
+
+        function renderDetailMap(lat, lng, conditionStr = "", category = "", title = "") {
+            const mapContainer = document.getElementById('detailMapContainer');
+            if(!lat || !lng) { mapContainer.classList.add('hidden'); return; }
+            mapContainer.classList.remove('hidden');
+
+            if(!detailMapObj) {
+                detailMapObj = L.map('detailMap', {
+                    center: [lat, lng],
+                    zoom: 17,
+                    minZoom: 16,
+                    maxBounds: baybayPolongBounds,
+                    maxBoundsViscosity: 1.0
+                });
+                
+                L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(detailMapObj);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(detailMapObj);
+                
+                addCustomRoadLabel(detailMapObj); 
+
+                detailMarker = L.marker([lat, lng], { icon: getCustomIcon(conditionStr, category) })
+                    .addTo(detailMapObj)
+                    .bindTooltip(title ? String(title) : "", { permanent: true, direction: 'top', offset: [0, -40], className: 'landmark-label' });
+            } else {
+                detailMapObj.setView([lat, lng], 17);
+                detailMarker.setLatLng([lat, lng]);
+                detailMarker.setIcon(getCustomIcon(conditionStr, category));
+                detailMarker.unbindTooltip().bindTooltip(title ? String(title) : "", { permanent: true, direction: 'top', offset: [0, -40], className: 'landmark-label' });
+            }
+            setTimeout(() => { detailMapObj.invalidateSize(); }, 300);
         }
 
         function openRequestModal(docType) {
@@ -511,11 +605,47 @@
         }
 
         const fileInput = document.getElementById('imagesInput');
-        if(fileInput) { fileInput.addEventListener('change', function(e) { selectedFiles = [...selectedFiles, ...Array.from(e.target.files)]; updateImagePreviews(); syncFileInput(); }); }
-        function updateImagePreviews() { const c = document.getElementById('imagePreviewContainer'); c.innerHTML = ''; selectedFiles.forEach((f, i) => { const r = new FileReader(); r.onload = function(e) { const d = document.createElement('div'); d.className = "relative aspect-square rounded-2xl overflow-hidden border shadow-sm animate-pop group"; d.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover"><button type="button" onclick="removeImage(${i})" class="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full text-[10px] flex items-center justify-center shadow-lg transition"><i class="fas fa-times"></i></button>`; c.appendChild(d); }; r.readAsDataURL(f); }); }
-        function removeImage(i) { selectedFiles.splice(i, 1); updateImagePreviews(); syncFileInput(); }
-        function syncFileInput() { const dt = new DataTransfer(); selectedFiles.forEach(f => dt.items.add(f)); fileInput.files = dt.files; }
-        function resetUploadForm() { selectedFiles = []; document.getElementById('imagePreviewContainer').innerHTML = ''; if(fileInput) fileInput.value = ''; document.getElementById('postForm').reset(); }
+        if(fileInput) { 
+            fileInput.addEventListener('change', function(e) { 
+                selectedFiles = [...selectedFiles, ...Array.from(e.target.files)]; 
+                updateImagePreviews(); 
+                syncFileInput(); 
+            }); 
+        }
+
+        function updateImagePreviews() {
+            const c = document.getElementById('imagePreviewContainer');
+            c.innerHTML = '';
+            selectedFiles.forEach((f, i) => {
+                const r = new FileReader();
+                r.onload = function(e) {
+                    const d = document.createElement('div');
+                    d.className = "relative aspect-square rounded-2xl overflow-hidden border shadow-sm animate-pop group";
+                    d.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover"><button type="button" onclick="removeImage(${i})" class="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full text-[10px] flex items-center justify-center shadow-lg transition"><i class="fas fa-times"></i></button>`;
+                    c.appendChild(d);
+                };
+                r.readAsDataURL(f);
+            });
+        }
+
+        function removeImage(i) {
+            selectedFiles.splice(i, 1);
+            updateImagePreviews();
+            syncFileInput();
+        }
+
+        function syncFileInput() {
+            const dt = new DataTransfer();
+            selectedFiles.forEach(f => dt.items.add(f));
+            fileInput.files = dt.files;
+        }
+
+        function resetUploadForm() {
+            selectedFiles = [];
+            document.getElementById('imagePreviewContainer').innerHTML = '';
+            if(fileInput) fileInput.value = '';
+            document.getElementById('postForm').reset();
+        }
 
         function openDetail(id) {
             currentDetailPostId = id; 
@@ -541,7 +671,6 @@
                         }
                     }
 
-                    // --- Description Rendering ---
                     const descEl = document.getElementById('detDesc');
                     if (d.description) {
                         if (d.category === 'requests' && d.description.includes('Requester Name:')) {
@@ -566,6 +695,18 @@
                     }
                     
                     document.getElementById('detUser').innerText = d.user ? d.user.name : 'Neighbor';
+
+                    const showLocationCategories = ['buy-sell', 'borrow', 'services', 'events', 'places', 'complaints'];
+                    const locEl = document.getElementById('detLocation');
+                    if (showLocationCategories.includes(d.category) && d.location) {
+                        locEl.classList.remove('hidden');
+                        document.querySelector('#detLocation span').innerText = d.location;
+                    } else {
+                        locEl.classList.add('hidden');
+                    }
+
+                    renderDetailMap(d.latitude, d.longitude, d.condition, d.category, d.title);
+
                     document.getElementById('detDate').innerText = new Date(d.created_at).toLocaleDateString();
                     
                     const titleContainer = document.getElementById('detTitleContainer');
@@ -584,7 +725,7 @@
                     }
 
                     const conditionContainer = document.getElementById('detConditionContainer');
-                    if(d.condition) {
+                    if(d.condition && d.category !== 'places') {
                         conditionContainer.innerHTML = `<div class="bg-slate-800 text-white px-4 py-1 rounded-lg text-xs font-black uppercase tracking-widest">${d.condition}</div>`;
                     } else { conditionContainer.innerHTML = ''; }
 
@@ -609,15 +750,19 @@
                         const sColor = statusColors[d.status || 'pending'] || 'bg-slate-100 text-slate-700 border-slate-200';
                         const sIcon = statusIcons[d.status || 'pending'] || 'fa-info-circle';
                         titleContainer.innerHTML = `<div class="flex flex-col items-start gap-4"><h2 class="text-4xl md:text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2><span class="px-5 py-2 rounded-full text-[11px] font-black tracking-widest uppercase border shadow-sm flex items-center gap-2 ${sColor}"><i class="fas ${sIcon}"></i> STATUS: ${(d.status || 'pending')}</span></div>`;
+                        
                         if(displayDateTime) {
                             const dateLabel = d.status === 'rejected' ? 'Actioned On' : 'Scheduled For';
                             priceEl.innerHTML = `<div class="bg-[#36B3C9]/10 border border-[#36B3C9]/20 p-5 rounded-[1.5rem] w-full mt-2"><span class="text-[10px] font-black text-[#36B3C9] uppercase tracking-widest block mb-1"><i class="fas fa-calendar-alt mr-1"></i> ${dateLabel}</span><span class="text-slate-800 text-lg font-black tracking-tight">${displayDateTime}</span></div>`;
                         } else {
                             priceEl.innerHTML = `<div class="bg-yellow-50 border border-yellow-100 p-5 rounded-[1.5rem] w-full mt-2"><span class="text-xs font-black text-yellow-600 uppercase tracking-widest flex items-center gap-2"><i class="fas fa-clock text-lg"></i> Waiting for Admin to set schedule</span></div>`;
                         }
+                        
                         if (userRole === 'admin') {
                             adminControls.innerHTML = `<form action="/post/${d.id}/status" method="POST" class="mt-6 p-8 bg-white shadow-xl shadow-slate-200/50 rounded-[2.5rem] border border-slate-100 animate-pop"><input type="hidden" name="_token" value="{{ csrf_token() }}"><input type="hidden" name="_method" value="PATCH"><h4 class="font-black uppercase text-sm mb-6 text-[#36B3C9] flex items-center gap-2"><i class="fas fa-calendar-check text-lg"></i> Admin: Manage Appointment</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="bg-slate-50 p-4 rounded-[1.5rem]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Update Status</label><select name="status" id="adminStatusSelect" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer"><option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending Review</option><option value="approved" ${d.status === 'approved' ? 'selected' : ''}>Approved / Scheduled</option><option value="completed" ${d.status === 'completed' ? 'selected' : ''}>Completed</option><option value="rejected" ${d.status === 'rejected' ? 'selected' : ''}>Rejected</option></select></div><div class="bg-slate-50 p-4 rounded-[1.5rem]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Set Date & Time</label><input type="datetime-local" name="event_date" value="${inputDateTime}" class="w-full p-0 border-none bg-transparent font-bold text-sm text-slate-700 focus:ring-0 cursor-pointer"></div></div><button type="submit" class="mt-6 w-full bg-slate-800 text-white font-black py-4 rounded-[1.5rem] uppercase tracking-widest text-[10px] shadow-lg hover:bg-slate-700 transition active:scale-95">Update Appointment</button></form>`;
-                        } else { adminControls.innerHTML = ''; }
+                        } else {
+                            adminControls.innerHTML = '';
+                        }
                     } else {
                         adminControls.innerHTML = '';
                         titleContainer.innerHTML = `<h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>`;
@@ -625,7 +770,9 @@
                             priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${displayDateTime || new Date(d.event_date).toLocaleDateString()}</span>`;
                         } else if(isBuySell) {
                             priceEl.innerHTML = `<span class="text-3xl font-black text-[#36B3C9]">${d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer'}</span>`;
-                        } else { priceEl.innerHTML = ''; }
+                        } else {
+                            priceEl.innerHTML = '';
+                        }
                     }
 
                     const contactArea = document.getElementById('contactButtonContainer');
@@ -656,7 +803,6 @@
                         deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`;
                     } else { deleteArea.innerHTML = ''; }
 
-                    // --- NEW: REPORT RENDER LOGIC (Hide from Mods so they don't report, they just delete) ---
                     const reportArea = document.getElementById('detReportContainer');
                     if (currentUserId !== null && currentUserId !== d.user_id && userRole !== 'admin' && userRole !== 'moderator') {
                         reportArea.innerHTML = `
@@ -679,35 +825,65 @@
                                 </button>
                             </form>
                         `;
-                    } else {
-                        reportArea.innerHTML = '';
-                    }
+                    } else { reportArea.innerHTML = ''; }
 
-                    const imgSection = document.getElementById('detailImageSection'); const imgContainer = document.getElementById('detImg');
-                    let images = []; try { images = Array.isArray(d.image) ? d.image : (d.image ? JSON.parse(d.image) : []); } catch(e) { images = []; }
-                    if (images.length > 0) { imgSection.classList.remove('hidden'); imgContainer.innerHTML = images.map(img => `<div class="w-full h-full flex-shrink-0 snap-center flex items-center justify-center bg-black"><img src="/uploads/${img}" class="max-w-full max-h-full object-contain"></div>`).join(''); totalImgs = images.length; currentIdx = 0; if(totalImgs <= 1) { document.getElementById('prevBtn').classList.add('hidden'); document.getElementById('nextBtn').classList.add('hidden'); } else { document.getElementById('prevBtn').classList.remove('hidden'); document.getElementById('nextBtn').classList.remove('hidden'); } } else { imgSection.classList.add('hidden'); }
+                    const imgSection = document.getElementById('detailImageSection'); 
+                    const imgContainer = document.getElementById('detImg');
+                    let images = []; 
+                    try { 
+                        images = Array.isArray(d.image) ? d.image : (d.image ? JSON.parse(d.image) : []); 
+                    } catch(e) { 
+                        images = []; 
+                    } 
                     
-                    if (document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal');
+                    if (images.length > 0) { 
+                        imgSection.classList.remove('hidden'); 
+                        imgContainer.innerHTML = images.map(img => `<div class="w-full h-full flex-shrink-0 snap-center flex items-center justify-center bg-black"><img src="/uploads/${img}" class="max-w-full max-h-full object-contain"></div>`).join(''); 
+                        totalImgs = images.length; 
+                        currentIdx = 0; 
+                        if(totalImgs <= 1) { 
+                            document.getElementById('prevBtn').classList.add('hidden'); 
+                            document.getElementById('nextBtn').classList.add('hidden'); 
+                        } else { 
+                            document.getElementById('prevBtn').classList.remove('hidden'); 
+                            document.getElementById('nextBtn').classList.remove('hidden'); 
+                        } 
+                    } else { 
+                        imgSection.classList.add('hidden'); 
+                    }
+                    
+                    if (document.getElementById('detailModal').classList.contains('hidden')) {
+                        toggleModal('detailModal');
+                    }
                 });
         }
         
-        function triggerDelete(id) { document.getElementById('deleteForm').action = `/post/${id}`; if(!document.getElementById('detailModal').classList.contains('hidden')) toggleModal('detailModal'); toggleModal('deleteConfirmModal'); }
-        function moveGallery(dir) { const c = document.getElementById('detImg'); currentIdx += dir; if (currentIdx < 0) currentIdx = totalImgs - 1; if (currentIdx >= totalImgs) currentIdx = 0; c.scrollTo({ left: c.clientWidth * currentIdx, behavior: 'smooth' }); }
+        function triggerDelete(id) { 
+            document.getElementById('deleteForm').action = `/post/${id}`; 
+            if(!document.getElementById('detailModal').classList.contains('hidden')) {
+                toggleModal('detailModal'); 
+            }
+            toggleModal('deleteConfirmModal'); 
+        }
 
-        // ==========================================
-        // FLOATING INBOX & CHAT SYSTEM JAVASCRIPT
-        // ==========================================
-        
-        function getCsrfToken() {
-            return document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        function moveGallery(dir) { 
+            const c = document.getElementById('detImg'); 
+            currentIdx += dir; 
+            if (currentIdx < 0) currentIdx = totalImgs - 1; 
+            if (currentIdx >= totalImgs) currentIdx = 0; 
+            c.scrollTo({ left: c.clientWidth * currentIdx, behavior: 'smooth' }); 
+        }
+
+        function getCsrfToken() { 
+            return document.querySelector('meta[name="csrf-token"]').getAttribute('content'); 
         }
 
         function toggleInboxPanel() {
             const panel = document.getElementById('inboxPanel');
             if (panel) {
                 panel.classList.toggle('translate-x-full');
-                if (!panel.classList.contains('translate-x-full')) {
-                    loadInbox();
+                if (!panel.classList.contains('translate-x-full')) { 
+                    loadInbox(); 
                 }
             }
         }
@@ -723,12 +899,7 @@
                     let unreadTotal = 0;
 
                     if(conversations.length === 0) {
-                        inboxContent.innerHTML = `
-                            <div class="text-center mt-12 text-slate-400">
-                                <i class="fas fa-box-open text-4xl mb-4 text-slate-200"></i>
-                                <p class="text-xs font-black uppercase tracking-widest">No Messages Here</p>
-                                <p class="text-[10px] font-bold mt-2">Chat with a neighbor about a post to start.</p>
-                            </div>`;
+                        inboxContent.innerHTML = `<div class="text-center mt-12 text-slate-400"><i class="fas fa-box-open text-4xl mb-4 text-slate-200"></i><p class="text-xs font-black uppercase tracking-widest">No Messages Here</p></div>`;
                     } else {
                         conversations.forEach(conv => {
                             const currentUserId = {{ Auth::id() ?? 'null' }};
@@ -739,8 +910,6 @@
                             if (isUnread) unreadTotal++;
 
                             let msgText = lastMsg ? lastMsg.body : 'No messages yet.';
-                            
-                            // NEW: Format the Inbox Preview so raw magic strings are hidden
                             if(msgText.startsWith('[OFFER-')) msgText = '<i class="fas fa-hand-holding-usd text-[#36B3C9]"></i> Sent an offer.';
                             if(msgText.startsWith('[ACCEPT-')) msgText = '<i class="fas fa-check-circle text-green-500"></i> Accepted the offer!';
                             if(msgText.startsWith('[DECLINE-')) msgText = '<i class="fas fa-times-circle text-red-500"></i> Declined the offer.';
@@ -748,7 +917,6 @@
                             let dateText = lastMsg ? new Date(lastMsg.created_at).toLocaleDateString() : '';
                             let unreadClass = isUnread ? 'bg-white border-l-4 border-[#36B3C9] shadow-md' : 'bg-white border border-slate-100 hover:shadow-sm';
                             let titleClass = isUnread ? 'text-[#36B3C9] font-black' : 'text-slate-700 font-bold';
-
                             const safeTitle = conv.post ? conv.post.title.replace(/['"]/g, '') : 'Post';
 
                             const html = `
@@ -768,83 +936,82 @@
                             inboxContent.insertAdjacentHTML('beforeend', html);
                         });
                     }
-
                     const badge = document.getElementById('unreadBadge');
-                    if (badge) {
-                        if (unreadTotal > 0) {
-                            badge.innerText = unreadTotal;
-                            badge.classList.remove('hidden');
-                        } else {
-                            badge.classList.add('hidden');
-                        }
+                    if (badge) { 
+                        if (unreadTotal > 0) { 
+                            badge.innerText = unreadTotal; 
+                            badge.classList.remove('hidden'); 
+                        } else { 
+                            badge.classList.add('hidden'); 
+                        } 
                     }
-                })
-                .catch(err => console.error("Error loading inbox:", err));
+                }).catch(err => console.error(err));
         }
 
-        function openChatFromInbox(postId, postTitle) {
-            toggleInboxPanel();
-            openChatBox(postId, postTitle);
+        function openChatFromInbox(postId, postTitle) { 
+            toggleInboxPanel(); 
+            openChatBox(postId, postTitle); 
         }
 
         function openChatBox(postId, postTitle = 'Chat', initialMessage = null) {
             const detailModal = document.getElementById('detailModal');
-            if(detailModal && !detailModal.classList.contains('hidden')) {
-                toggleModal('detailModal');
+            if(detailModal && !detailModal.classList.contains('hidden')) { 
+                toggleModal('detailModal'); 
             }
-
-            document.querySelectorAll('[id^="chatBox-"]').forEach(box => {
-                if (!box.classList.contains('hidden') && box.id !== 'chatBox-' + postId) {
-                    box.classList.add('hidden');
-                    box.classList.remove('flex');
-                }
+            
+            document.querySelectorAll('[id^="chatBox-"]').forEach(box => { 
+                if (!box.classList.contains('hidden') && box.id !== 'chatBox-' + postId) { 
+                    box.classList.add('hidden'); 
+                    box.classList.remove('flex'); 
+                } 
             });
-
+            
             let box = document.getElementById('chatBox-' + postId);
             if(!box) {
                 const boxHtml = `
-                <div id="chatBox-${postId}" class="hidden fixed bottom-0 right-32 sm:right-40 w-80 bg-white border border-slate-200 shadow-2xl rounded-t-2xl flex-col z-[200]">
-                    <div class="bg-[#36B3C9] text-white p-4 rounded-t-2xl flex justify-between items-center cursor-pointer shadow-sm" onclick="toggleChatBody(${postId})">
-                        <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> ${postTitle}</span>
-                        <button onclick="closeChatBox(${postId}, event)" class="text-white hover:text-slate-200 text-lg leading-none transition">&times;</button>
-                    </div>
-                    <div id="chatBody-${postId}" class="flex flex-col">
-                        <div id="chatMessages-${postId}" class="h-64 overflow-y-auto p-4 bg-slate-50 flex flex-col gap-2">
-                            <div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Loading messages...</div>
+                    <div id="chatBox-${postId}" class="hidden fixed bottom-0 right-32 sm:right-40 w-80 bg-white border border-slate-200 shadow-2xl rounded-t-2xl flex-col z-[200]">
+                        <div class="bg-[#36B3C9] text-white p-4 rounded-t-2xl flex justify-between items-center cursor-pointer shadow-sm" onclick="toggleChatBody(${postId})">
+                            <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> ${postTitle}</span>
+                            <button onclick="closeChatBox(${postId}, event)" class="text-white hover:text-slate-200 text-lg leading-none transition">&times;</button>
                         </div>
-                        <div class="p-3 border-t border-slate-100 bg-white">
-                            <form onsubmit="sendChatMessage(event, ${postId})" class="flex gap-2">
-                                <input type="text" id="chatInput-${postId}" class="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-[#36B3C9] focus:ring-1 focus:ring-[#36B3C9] placeholder:text-slate-300 transition" placeholder="Write a message..." required autocomplete="off">
-                                <button type="submit" class="bg-[#36B3C9] text-white w-10 h-10 flex items-center justify-center rounded-2xl font-bold hover:brightness-110 active:scale-95 transition shadow-md shadow-cyan-100">
-                                    <i class="fas fa-paper-plane text-xs"></i>
-                                </button>
-                            </form>
+                        <div id="chatBody-${postId}" class="flex flex-col">
+                            <div id="chatMessages-${postId}" class="h-64 overflow-y-auto p-4 bg-slate-50 flex flex-col gap-2">
+                                <div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Loading messages...</div>
+                            </div>
+                            <div class="p-3 border-t border-slate-100 bg-white">
+                                <form onsubmit="sendChatMessage(event, ${postId})" class="flex gap-2">
+                                    <input type="text" id="chatInput-${postId}" class="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-[#36B3C9] focus:ring-1 focus:ring-[#36B3C9] placeholder:text-slate-300 transition" placeholder="Write a message..." required autocomplete="off">
+                                    <button type="submit" class="bg-[#36B3C9] text-white w-10 h-10 flex items-center justify-center rounded-2xl font-bold hover:brightness-110 active:scale-95 transition shadow-md shadow-cyan-100">
+                                        <i class="fas fa-paper-plane text-xs"></i>
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
-                </div>`;
+                `;
                 document.body.insertAdjacentHTML('beforeend', boxHtml);
                 box = document.getElementById('chatBox-' + postId);
             }
-
-            box.classList.remove('hidden');
-            box.classList.add('flex');
+            
+            box.classList.remove('hidden'); 
+            box.classList.add('flex'); 
             fetchMessages(postId, initialMessage);
         }
 
-        function closeChatBox(postId, event) {
-            event.stopPropagation();
-            const box = document.getElementById('chatBox-' + postId);
-            if(box) {
-                box.classList.add('hidden');
-                box.classList.remove('flex');
-            }
+        function closeChatBox(postId, event) { 
+            event.stopPropagation(); 
+            const box = document.getElementById('chatBox-' + postId); 
+            if(box) { 
+                box.classList.add('hidden'); 
+                box.classList.remove('flex'); 
+            } 
         }
 
-        function toggleChatBody(postId) {
-            const body = document.getElementById('chatBody-' + postId);
-            if(body) {
-                body.classList.toggle('hidden');
-            }
+        function toggleChatBody(postId) { 
+            const body = document.getElementById('chatBody-' + postId); 
+            if(body) { 
+                body.classList.toggle('hidden'); 
+            } 
         }
 
         function fetchMessages(postId, initialMessage = null) {
@@ -855,92 +1022,61 @@
                     if(!messagesContainer) return;
                     
                     messagesContainer.innerHTML = '';
-                    
-                    if(data.messages.length === 0) {
-                        messagesContainer.innerHTML = '<div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Start the conversation!</div>';
+                    if(data.messages.length === 0) { 
+                        messagesContainer.innerHTML = '<div class="text-center text-[10px] font-black uppercase tracking-widest text-slate-300 mt-10">Start the conversation!</div>'; 
                     }
-
-                    data.messages.forEach(msg => {
-                        // Pass the post_owner_id into the DOM appender so it knows who the seller is
-                        appendMessageToDOM(postId, msg, data.current_user_id, data.post_owner_id);
+                    
+                    data.messages.forEach(msg => { 
+                        appendMessageToDOM(postId, msg, data.current_user_id, data.post_owner_id); 
                     });
                     
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-                    if(initialMessage) {
-                         document.getElementById('chatInput-' + postId).value = initialMessage;
-                         document.querySelector(`#chatBox-${postId} form`).dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                    
+                    if(initialMessage) { 
+                        document.getElementById('chatInput-' + postId).value = initialMessage; 
+                        document.querySelector(`#chatBox-${postId} form`).dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); 
                     }
-
-                    const inboxPanel = document.getElementById('inboxPanel');
-                    if (inboxPanel && !inboxPanel.classList.contains('translate-x-full')) {
-                        loadInbox();
-                    } else {
-                        fetch(`/api/inbox?category={{ $type }}`)
-                            .then(r => r.json())
-                            .then(conversations => {
-                                let unreadTotal = 0;
-                                conversations.forEach(conv => {
-                                    const lastMsg = conv.messages.length > 0 ? conv.messages[0] : null;
-                                    if (lastMsg && lastMsg.user_id !== {{ Auth::id() ?? 'null' }} && !lastMsg.is_read) unreadTotal++;
-                                });
-                                const badge = document.getElementById('unreadBadge');
-                                if (badge) {
-                                    if (unreadTotal > 0) { badge.innerText = unreadTotal; badge.classList.remove('hidden'); } 
-                                    else { badge.classList.add('hidden'); }
-                                }
-                            });
-                    }
-                })
-                .catch(err => console.error("Error fetching messages:", err));
+                }).catch(err => console.error(err));
         }
 
         function sendChatMessage(event, postId) {
-            event.preventDefault();
-            const input = document.getElementById('chatInput-' + postId);
-            const body = input.value;
-            if (!body) return;
-
+            event.preventDefault(); 
+            const input = document.getElementById('chatInput-' + postId); 
+            const body = input.value; 
+            if (!body) return; 
             input.value = '';
             
-            fetch(`/api/chat/${postId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken()
-                },
-                body: JSON.stringify({ body: body })
+            fetch(`/api/chat/${postId}`, { 
+                method: 'POST', 
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'X-CSRF-TOKEN': getCsrfToken() 
+                }, 
+                body: JSON.stringify({ body: body }) 
             })
             .then(response => response.json())
             .then(payload => {
-                // Ensure compatibility with the updated ChatController returning a payload object
-                let msg = payload.message || payload;
+                let msg = payload.message || payload; 
                 let ownerId = payload.post_owner_id || currentDetailPostId;
                 
                 appendMessageToDOM(postId, msg, msg.user_id, ownerId);
                 const messagesContainer = document.getElementById('chatMessages-' + postId);
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            })
-            .catch(err => console.error("Error sending message:", err));
+            }).catch(err => console.error(err));
         }
 
-        // ===============================================
-        // NEW PARSER: CREATES THE OFFER BUTTONS AND BOLD UI
-        // ===============================================
         function appendMessageToDOM(postId, msg, currentUserId, postOwnerId) {
             const messagesContainer = document.getElementById('chatMessages-' + postId);
             if(!messagesContainer) return;
             
-            if(messagesContainer.innerHTML.includes('Start the conversation')) {
-                messagesContainer.innerHTML = '';
+            if(messagesContainer.innerHTML.includes('Start the conversation')) { 
+                messagesContainer.innerHTML = ''; 
             }
 
             const isMe = msg.user_id === currentUserId;
             const alignClass = isMe ? 'justify-end' : 'justify-start';
             let bgClass = isMe ? 'bg-[#36B3C9] text-white rounded-l-2xl rounded-tr-2xl' : 'bg-white border border-slate-200 text-slate-800 rounded-r-2xl rounded-tl-2xl';
-            
-            // Check for magic string tags
-            let displayBody = msg.body;
+            let displayBody = msg.body; 
             let extraHtml = '';
 
             const offerMatch = msg.body.match(/^\[OFFER-(.+)\]$/);
@@ -949,10 +1085,7 @@
 
             if (offerMatch) {
                 const amount = offerMatch[1];
-                // Bold and colored price
                 displayBody = `<span class="opacity-80">I would like to offer</span> <strong class="text-xl font-black ${isMe ? 'text-white' : 'text-[#36B3C9]'} tracking-tight block my-1">₱${amount}</strong> <span class="opacity-80"></span>`;
-                
-                // If the reader is the SELLER, and they are reading the BUYER'S offer: SHOW BUTTONS
                 if (currentUserId === postOwnerId && !isMe) {
                     extraHtml = `
                         <div class="mt-3 flex gap-2 border-t border-slate-200 pt-3">
@@ -981,55 +1114,105 @@
         }
 
         function toggleLike(postId) {
-            fetch(`/post/${postId}/like`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken()
-                }
+            fetch(`/post/${postId}/like`, { 
+                method: 'POST', 
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'X-CSRF-TOKEN': getCsrfToken() 
+                } 
             })
             .then(r => r.json())
             .then(data => {
-                const likeBtn = document.getElementById(`likeBtn-${postId}`);
+                const likeBtn = document.getElementById(`likeBtn-${postId}`); 
                 const likeCount = document.getElementById(`likeCount-${postId}`);
                 
-                if (data.liked) {
-                    likeBtn.classList.remove('text-slate-300', 'bg-slate-50', 'border-slate-100');
-                    likeBtn.classList.add('text-red-500', 'bg-red-50', 'border-red-100');
-                } else {
-                    likeBtn.classList.add('text-slate-300', 'bg-slate-50', 'border-slate-100');
-                    likeBtn.classList.remove('text-red-500', 'bg-red-50', 'border-red-100');
+                if (data.liked) { 
+                    likeBtn.classList.remove('text-slate-300', 'bg-slate-50', 'border-slate-100'); 
+                    likeBtn.classList.add('text-red-500', 'bg-red-50', 'border-red-100'); 
+                } else { 
+                    likeBtn.classList.add('text-slate-300', 'bg-slate-50', 'border-slate-100'); 
+                    likeBtn.classList.remove('text-red-500', 'bg-red-50', 'border-red-100'); 
                 }
                 likeCount.innerText = data.count;
-            })
-            .catch(e => console.error("Error toggling like:", e));
+            }).catch(e => console.error("Error toggling like:", e));
         }
 
-        // --- NEW FUNCTION: SEND MAGIC OFFER STRING ---
         function sendOffer(postTitle) {
             const amount = document.getElementById('offerInput').value;
             if (!amount || !currentDetailPostId) return alert("Please enter an offer amount.");
-            
             const formattedAmount = new Intl.NumberFormat().format(amount);
-            const magicString = `[OFFER-${formattedAmount}]`; 
-            
-            openChatBox(currentDetailPostId, postTitle, magicString);
+            openChatBox(currentDetailPostId, postTitle, `[OFFER-${formattedAmount}]`);
         }
 
-        // --- NEW FUNCTION: RESPOND TO OFFER (Clicking Accept/Decline) ---
         function respondToOffer(postId, amount, action) {
-            let magicString = '';
-            if (action === 'accept') {
-                magicString = `[ACCEPT-${amount}]`;
-            } else {
-                magicString = `[DECLINE-${amount}]`;
-            }
-            
-            document.getElementById('chatInput-' + postId).value = magicString;
-            // Submit the form just like normal
+            document.getElementById('chatInput-' + postId).value = action === 'accept' ? `[ACCEPT-${amount}]` : `[DECLINE-${amount}]`;
             document.querySelector(`#chatBox-${postId} form`).dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
         }
 
+        // 👇 MAIN PLACES MAP 👇
+        @if($normalizedType === 'places')
+        document.addEventListener('DOMContentLoaded', function() {
+            var map = L.map('placesMap', {
+                center: baybayPolongCenter,
+                zoom: 16,
+                minZoom: 16,
+                maxBounds: baybayPolongBounds,
+                maxBoundsViscosity: 1.0
+            });
+
+            // 1. Layer: Esri World Imagery (Satellite ONLY)
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 19,
+                attribution: '© Esri'
+            }).addTo(map);
+
+            // 2. Layer: CartoDB Labels ONLY (Road Lines and Names, NO default Google/Carto Icons)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19
+            }).addTo(map);
+
+            // Welcome Pin
+            L.marker(baybayPolongCenter, {
+                icon: L.divIcon({
+                    className: 'custom-welcome-marker',
+                    html: `<div class="bg-red-600 text-white w-12 h-12 flex items-center justify-center rounded-full shadow-[0_4px_10px_rgba(0,0,0,0.5)] border-2 border-white text-xl z-50"><i class="fas fa-star text-yellow-300"></i></div>`,
+                    iconSize: [48, 48],
+                    iconAnchor: [24, 48]
+                }),
+                interactive: false
+            }).addTo(map)
+              .bindTooltip("Welcome to Baybay Polong", { permanent: true, direction: 'top', offset: [0, -48], className: 'welcome-label' });
+
+            @foreach($posts as $post)
+                @if($post->latitude && $post->longitude)
+                    @php $canDelete = ($isAdmin || $isModerator || Auth::id() === $post->user_id); @endphp
+                    
+                    let popupHtml_{{ $post->id }} = `
+                        <div class='text-center'>
+                            <b class="text-base text-slate-800">{{ addslashes($post->title) }}</b><br>
+                            <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{{ str_replace(['_', '-'], ' ', $post->category) }}</span><br>
+                            <span class="text-xs text-slate-500">{{ addslashes($post->location ?? 'Baybay Polong') }}</span><br>
+                            <button onclick='openDetail({{ $post->id }})' class='text-[10px] font-black text-[#36B3C9] mt-3 uppercase tracking-widest bg-[#36B3C9]/10 px-3 py-1.5 rounded-lg hover:bg-[#36B3C9] hover:text-white transition'>View Details</button>
+                            
+                            @if($canDelete)
+                                <div class="mt-2 pt-2 border-t border-slate-100">
+                                    <button onclick='triggerDelete({{ $post->id }})' class='text-[9px] font-black text-red-500 uppercase tracking-widest hover:text-red-700 transition'><i class="fas fa-trash"></i> Remove Landmark</button>
+                                </div>
+                            @endif
+                        </div>
+                    `;
+
+                    L.marker([{{ $post->latitude }}, {{ $post->longitude }}], { icon: getCustomIcon("{{ $post->condition }}", "{{ $post->category }}") })
+                        .addTo(map)
+                        .bindTooltip("{{ addslashes($post->title) }}", { permanent: true, direction: 'top', offset: [0, -40], className: 'landmark-label' })
+                        .bindPopup(popupHtml_{{ $post->id }});
+                @endif
+            @endforeach
+        });
+        @endif
+        // 👆 -------------------------------------------------------------------- 👆
+
+        // 👇 EVENTS CALENDAR INITIALIZATION 👇
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
@@ -1045,31 +1228,37 @@
             }
         });
         @endif
+        // 👆 ------------------------------ 👆
 
-        // --- URL PARAMETER CHECKER TO AUTO-OPEN POSTS OR CHATS ---
         document.addEventListener('DOMContentLoaded', function() {
+            // Auto-dismiss flash messages after 5 seconds
+            const flashMsg = document.getElementById('flash-message');
+            if (flashMsg) {
+                setTimeout(() => {
+                    flashMsg.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+                    flashMsg.style.opacity = '0';
+                    flashMsg.style.transform = 'translate(-50%, -20px)'; // slight float up effect
+                    setTimeout(() => flashMsg.remove(), 500);
+                }, 5000);
+            }
+
             const urlParams = new URLSearchParams(window.location.search);
             const postIdToOpen = urlParams.get('post');
             const chatIdToOpen = urlParams.get('chat');
             
-            // Standard Post Link
-            if (postIdToOpen) {
-                openDetail(postIdToOpen);
-                window.history.replaceState({}, document.title, window.location.pathname);
+            if (postIdToOpen) { 
+                openDetail(postIdToOpen); 
+                window.history.replaceState({}, document.title, window.location.pathname); 
             }
-
-            // Direct Chat Link (From Notifications!)
-            if (chatIdToOpen) {
-                // Fetch the post details quickly to get the correct title, then open the chat!
+            if (chatIdToOpen) { 
                 fetch(`/api/post/${chatIdToOpen}`)
                     .then(r => r.json())
-                    .then(d => {
-                        openChatBox(d.id, d.title.replace(/['"]/g, ''));
-                    });
-                window.history.replaceState({}, document.title, window.location.pathname);
+                    .then(d => { 
+                        openChatBox(d.id, d.title.replace(/['"]/g, '')); 
+                    }); 
+                window.history.replaceState({}, document.title, window.location.pathname); 
             }
         });
-
     </script>
 </body>
 </html>

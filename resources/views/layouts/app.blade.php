@@ -49,6 +49,10 @@
                             <a href="{{ route('admin.users') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.users') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
                                 <i class="fas fa-users-cog mr-4 text-lg"></i> Manage Users
                             </a>
+
+                            <a href="{{ route('admin.tags') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.tags') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">
+                                <i class="fas fa-hashtag mr-4 text-lg"></i> Manage Tags
+                            </a>
                         @endif
 
                         <a href="{{ route('admin.reports') }}" class="flex items-center p-4 w-full rounded-2xl font-bold transition-all hover:bg-slate-900 hover:text-white {{ request()->routeIs('admin.reports') ? 'bg-slate-900 text-white' : 'text-slate-600' }}">

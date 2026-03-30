@@ -61,8 +61,13 @@ Route::middleware(['auth', 'verified', IsAdmin::class])->prefix('admin')->name('
     Route::post('/users/{user}/promote', [AdminController::class, 'promote'])->name('users.promote');
     Route::post('/users/{user}/promote-mod', [AdminController::class, 'promoteMod'])->name('users.promoteMod');
     
-    // 👇 NEW: Route for manually creating users 👇
+    // Route for manually creating users
     Route::post('/users/create', [AdminController::class, 'createUser'])->name('users.create');
+
+    // 👇 NEW: Manage Dynamic Tags 👇
+    Route::get('/tags', [AdminController::class, 'tags'])->name('tags');
+    Route::post('/tags', [AdminController::class, 'storeTag'])->name('tags.store');
+    Route::delete('/tags/{tag}', [AdminController::class, 'deleteTag'])->name('tags.destroy');
 });
 
 // ---------------------------------------------------------

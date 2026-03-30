@@ -21,6 +21,9 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',          // <--- Added for Admin/Mod access
+        'is_banned',     // <--- Added for Ban functionality
+        'barangay',      // <--- NEW: Added for Location tracking
     ];
 
     /**
@@ -65,5 +68,10 @@ class User extends Authenticatable
     public function messages()
     {
         return $this->hasMany(Message::class);
+    }
+
+    public function reports()
+    {
+        return $this->hasMany(Report::class);
     }
 }

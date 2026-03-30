@@ -41,6 +41,13 @@
                 </div>
 
                 <div>
+                    <label class="block text-gray-500 font-bold text-xs uppercase mb-1">Barangay / Location</label>
+                    <input type="text" name="barangay" value="Baybay Polong, Binmaley, Pangasinan" readonly required 
+                           class="w-full p-3 bg-slate-200 text-slate-500 border-none outline-none font-bold cursor-not-allowed">
+                    <p class="text-[10px] text-slate-400 mt-1 font-bold"><i class="fas fa-lock mr-1"></i> NeighborHub is currently exclusive to Baybay Polong residents.</p>
+                </div>
+
+                <div>
                     <label class="block text-gray-500 font-bold text-xs uppercase mb-1">Password</label>
                     <input type="password" name="password" class="w-full p-3 bg-[#D9D9D9] border-none focus:ring-2 focus:ring-[#36B3C9] outline-none transition" required autocomplete="new-password">
                     <x-input-error :messages="$errors->get('password')" class="mt-1" />

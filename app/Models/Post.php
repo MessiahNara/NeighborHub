@@ -16,10 +16,13 @@ class Post extends Model
         'description', 
         'event_date',
         'price', 
-        'condition', // <--- ADDED THIS FOR BUY & SELL
+        'condition',
         'tags',
         'image',
         'status',
+        'location',  // <--- ADDED for specific place names (e.g. Zone 1)
+        'latitude',  // <--- ADDED for the interactive map pin
+        'longitude', // <--- ADDED for the interactive map pin
     ];
 
     protected $casts = [
@@ -42,7 +45,6 @@ class Post extends Model
 
     public function reports()
     {   
-
         return $this->hasMany(Report::class);
     }   
 }
