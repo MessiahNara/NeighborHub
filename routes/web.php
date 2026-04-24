@@ -33,11 +33,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/post/{post}/like', [PostController::class, 'toggleLike'])->name('post.like');
     Route::post('/post/{post}/report', [PostController::class, 'report'])->name('post.report');
     
+    // 👇 NEW: Seller Transaction Status Route 👇
+    Route::patch('/api/post/{post}/transaction-status', [PostController::class, 'updateTransactionStatus']);
+    
+    // Wishlist Routes
+    Route::post('/post/{post}/wishlist', [PostController::class, 'toggleWishlist'])->name('post.wishlist');
+    Route::get('/wishlist', [PostController::class, 'myWishlist'])->name('wishlist.index');
+    
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     
-    // 👇 NEW: Route for uploading Profile Pic and ID Verification 👇
+    // Route for uploading Profile Pic and ID Verification
     Route::post('/profile/upload-docs', [ProfileController::class, 'uploadDocs'])->name('profile.upload-docs');
 
     Route::get('/api/chat/{post}', [ChatController::class, 'fetchMessages'])->name('api.chat.fetch');
@@ -66,7 +73,7 @@ Route::middleware(['auth', 'verified', IsAdmin::class])->prefix('admin')->name('
     Route::post('/users/{user}/promote', [AdminController::class, 'promote'])->name('users.promote');
     Route::post('/users/{user}/promote-mod', [AdminController::class, 'promoteMod'])->name('users.promoteMod');
     
-    // 👇 NEW: Update Roles and Verify Users 👇
+    // Update Roles and Verify Users
     Route::post('/users/{user}/role', [AdminController::class, 'updateRole'])->name('role');
     Route::post('/users/{user}/verify', [AdminController::class, 'verifyUser'])->name('verify');
     

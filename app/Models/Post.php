@@ -23,6 +23,7 @@ class Post extends Model
         'location',  // <--- ADDED for specific place names (e.g. Zone 1)
         'latitude',  // <--- ADDED for the interactive map pin
         'longitude', // <--- ADDED for the interactive map pin
+        'transaction_status',
     ];
 
     protected $casts = [

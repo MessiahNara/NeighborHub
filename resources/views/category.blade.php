@@ -66,6 +66,10 @@
     $isEvent     = in_array($normalizedType, ['event', 'events']);
     $isComplaint = ($normalizedType === 'complaints');
     $isRequest   = ($normalizedType === 'requests');
+    $isWishlist  = ($normalizedType === 'wishlist');
+    
+    // Only allow Wishlists on these specific categories
+    $hasWishlistFeature = in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'wishlist']);
     
     // ALL categories can pin a location now
     $showLocation = true;
@@ -75,22 +79,40 @@
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
     $isModerator = (Auth::check() && Auth::user()->role === 'moderator');
 
-    // 👇 Check if category requires verification to post 👇
+    // Check if category requires verification to post
     $requiresVerification = in_array($normalizedType, ['buy-sell', 'borrow', 'services']);
     $isVerified = (Auth::check() && Auth::user()->is_verified == 1);
     $canPost = !$requiresVerification || $isVerified || $isAdmin;
 
-    $useGrid = ($isBuySell || $isBorrow || in_array($normalizedType, ['services', 'places']));
+    $useGrid = ($isBuySell || $isBorrow || $isWishlist || in_array($normalizedType, ['services', 'places']));
     
     $searchSlug = $normalizedType;
     if($searchSlug === 'announce') $searchSlug = 'announcements';
     if($searchSlug === 'request')  $searchSlug = 'requests';
     if($searchSlug === 'event')    $searchSlug = 'events';
 
-    $availableTags = \App\Models\Tag::where('category_slug', $searchSlug)->pluck('name')->toArray();
+    $availableTags = \App\Models\Tag::where('category_slug', $searchSlug)->pluck('name')->toArray() ?? [];
     
+    // DYNAMIC FILTERING LOGIC (All, My Active, Wishlist, History, Borrows)
+    $filter = request('filter', 'all');
+    if ($filter == 'my_posts') {
+        $posts = collect($posts)->where('user_id', Auth::id())->where('transaction_status', '!=', 'sold');
+    } elseif ($filter == 'history') {
+        $posts = collect($posts)->where('user_id', Auth::id())->where('transaction_status', 'sold');
+    } elseif ($filter == 'wishlist' && Auth::check()) {
+        $wishlistIds = \App\Models\Wishlist::where('user_id', Auth::id())->pluck('post_id')->toArray();
+        $posts = collect($posts)->whereIn('id', $wishlistIds);
+    } elseif ($filter == 'my_borrows' && Auth::check()) {
+        // Items where I am NOT the owner, but I have a conversation about it (Items I want to borrow/buy)
+        $myConversations = \App\Models\Conversation::where('sender_id', Auth::id())->orWhere('receiver_id', Auth::id())->pluck('post_id')->toArray();
+        $posts = collect($posts)->whereIn('id', $myConversations)->where('user_id', '!=', Auth::id());
+    } else {
+        // Default 'all' view hides sold items
+        $posts = collect($posts)->where('transaction_status', '!=', 'sold');
+    }
+
     $calendarEvents = [];
-    if($isEvent) {
+    if($isEvent && isset($posts)) {
         foreach($posts as $p) {
             if($p->event_date) {
                 try {
@@ -112,8 +134,6 @@
                 $q->where(function($query) {
                     $query->where('sender_id', Auth::id())
                           ->orWhere('receiver_id', Auth::id());
-                })->whereHas('post', function($p) use ($type) {
-                    $p->where('category', $type);
                 });
             })->count();
     }
@@ -162,7 +182,7 @@
                         <i class="fas fa-map-pin"></i> <span class="hidden md:inline">Add Landmark</span>
                     </button>
                 @endif
-            @elseif(!$isRequest && (!$isAdminOnly || $isAdmin || $isModerator))
+            @elseif(!$isRequest && !$isWishlist && (!$isAdminOnly || $isAdmin || $isModerator))
                 @if(!$canPost)
                     <button onclick="alert('You must be verified by the Admin to post here. Please go to your Profile and upload your ID or Certificate of Indigency.')" class="bg-slate-300 text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-sm flex items-center gap-2 cursor-not-allowed">
                         <i class="fas fa-lock"></i> <span class="hidden md:inline">Unverified</span>
@@ -186,15 +206,25 @@
         <div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
             <div>
                 <h1 class="text-5xl font-black uppercase tracking-tighter text-slate-800 leading-none">{{ str_replace(['_', '-'], ' ', $type) }}</h1>
-                @if($isAdmin || !in_array($normalizedType, ['places', 'complaints', 'requests']))
-                    <p class="text-slate-400 font-bold text-xs uppercase tracking-widest mt-2 ml-1">{{ count($posts) }} Active Records</p>
+                @if($isAdmin || !in_array($normalizedType, ['places', 'complaints', 'requests', 'wishlist']))
+                    <p class="text-slate-400 font-bold text-xs uppercase tracking-widest mt-2 ml-1">{{ count($posts ?? []) }} Records Found</p>
                 @endif
             </div>
 
-            @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'requests', 'complaints']))
-                <div class="flex bg-slate-200/50 p-1 rounded-2xl">
-                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => null]) }}" class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ !request('my_posts') ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">All</a>
-                    <a href="{{ request()->fullUrlWithQuery(['my_posts' => '1']) }}" class="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {{ request('my_posts') == '1' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">My Posts</a>
+            @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'requests', 'complaints', 'wishlist']))
+                <div class="flex flex-wrap bg-slate-200/50 p-1.5 rounded-[1.5rem] gap-1">
+                    <a href="{{ request()->fullUrlWithQuery(['filter' => 'all']) }}" class="px-5 py-2.5 rounded-[1rem] text-[10px] font-black uppercase tracking-widest transition-all {{ request('filter', 'all') == 'all' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">All</a>
+                    <a href="{{ request()->fullUrlWithQuery(['filter' => 'my_posts']) }}" class="px-5 py-2.5 rounded-[1rem] text-[10px] font-black uppercase tracking-widest transition-all {{ request('filter') == 'my_posts' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">My Active</a>
+                    
+                    @if($hasWishlistFeature)
+                        <a href="{{ request()->fullUrlWithQuery(['filter' => 'wishlist']) }}" class="px-5 py-2.5 rounded-[1rem] text-[10px] font-black uppercase tracking-widest transition-all {{ request('filter') == 'wishlist' || $normalizedType == 'wishlist' ? 'bg-white text-yellow-500 shadow-sm' : 'text-slate-400 hover:text-slate-600' }}"><i class="fas fa-bookmark mr-1"></i> Saved</a>
+                    @endif
+
+                    @if(in_array($normalizedType, ['buy-sell', 'borrow', 'services']))
+                        <a href="{{ request()->fullUrlWithQuery(['filter' => 'my_borrows']) }}" class="px-5 py-2.5 rounded-[1rem] text-[10px] font-black uppercase tracking-widest transition-all {{ request('filter') == 'my_borrows' ? 'bg-white text-[#36B3C9] shadow-sm' : 'text-slate-400 hover:text-slate-600' }}"><i class="fas {{ $normalizedType === 'borrow' ? 'fa-hand-holding' : 'fa-shopping-bag' }} mr-1"></i> {{ $normalizedType === 'borrow' ? 'My Borrows' : 'My Inquiries' }}</a>
+                        
+                        <a href="{{ request()->fullUrlWithQuery(['filter' => 'history']) }}" class="px-5 py-2.5 rounded-[1rem] text-[10px] font-black uppercase tracking-widest transition-all {{ request('filter') == 'history' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600' }}"><i class="fas fa-archive mr-1"></i> History</a>
+                    @endif
                 </div>
             @endif
         </div>
@@ -230,37 +260,63 @@
 
         @if(!$isPlaces)
         <div class="relative z-10 {{ $useGrid ? 'grid grid-cols-2 md:grid-cols-4 gap-6' : 'space-y-4' }}" id="postsContainer">
-            @forelse($posts as $post)
-                <div onclick="openDetail({{ $post->id }})" class="post-item cursor-pointer bg-white p-5 rounded-[2.5rem] border border-slate-50 shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group relative {{ !$useGrid ? 'flex justify-between items-center' : '' }}">
+            @forelse($posts ?? [] as $post)
+                @php 
+                    $pfp = $post->user && $post->user->profile_picture ? asset($post->user->profile_picture) : null; 
+                    $isWishlisted = Auth::check() && \App\Models\Wishlist::where('user_id', Auth::id())->where('post_id', $post->id)->exists();
+                    
+                    // Logic to grey out reserved/sold items
+                    $isUnavailable = in_array($post->transaction_status ?? 'available', ['reserved', 'sold']);
+                    $cardOpacityClass = $isUnavailable ? 'opacity-60 grayscale hover:opacity-100 hover:grayscale-0' : '';
+                @endphp
+
+                <div onclick="openDetail({{ $post->id }})" class="post-item cursor-pointer bg-white p-5 rounded-[2.5rem] border border-slate-50 shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group relative {{ $cardOpacityClass }} {{ !$useGrid ? 'flex justify-between items-center' : 'flex flex-col' }}">
+                    
                     @if(!$useGrid)
-                        <div class="flex items-center gap-6">
-                            <div class="bg-slate-50 text-[#36B3C9] h-20 w-20 rounded-[1.8rem] flex items-center justify-center transition group-hover:bg-[#36B3C9] group-hover:text-white group-hover:rotate-6"><i class="fas {{ str_contains($normalizedType, 'complaint') ? 'fa-exclamation-triangle' : (str_contains($normalizedType, 'request') ? 'fa-file-signature' : (str_contains($normalizedType, 'event') ? 'fa-calendar-check' : 'fa-bullhorn')) }} text-2xl"></i></div>
-                            <div>
-                                <p class="font-black text-2xl text-slate-800 leading-tight mb-1 group-hover:text-[#36B3C9] transition">{{ $post->title }}</p>
+                        <div class="flex items-center gap-6 w-full">
+                            <div class="bg-slate-50 text-[#36B3C9] h-24 w-24 rounded-[1.8rem] flex items-center justify-center transition group-hover:bg-[#36B3C9] group-hover:text-white group-hover:rotate-6 shrink-0"><i class="fas {{ str_contains($normalizedType, 'complaint') ? 'fa-exclamation-triangle' : (str_contains($normalizedType, 'request') ? 'fa-file-signature' : (str_contains($normalizedType, 'event') ? 'fa-calendar-check' : 'fa-bullhorn')) }} text-3xl"></i></div>
+                            <div class="flex-1 py-2">
+                                <div class="flex justify-between items-start">
+                                    <p class="font-black text-2xl text-slate-800 leading-tight mb-2 group-hover:text-[#36B3C9] transition">{{ $post->title }}</p>
+                                    @if($hasWishlistFeature)
+                                        <button onclick="toggleWishlist(event, {{ $post->id }}, this)" class="text-xl transition-colors {{ $isWishlisted ? 'text-yellow-400' : 'text-slate-200 hover:text-yellow-400' }} ml-4"><i class="{{ $isWishlisted ? 'fas' : 'far' }} fa-bookmark"></i></button>
+                                    @endif
+                                </div>
+                                
                                 @if($isRequest || $isComplaint)
                                     <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2 {{ ($post->status ?? 'pending') === 'approved' ? 'bg-green-100 text-green-600' : (($post->status ?? 'pending') === 'completed' ? 'bg-blue-100 text-blue-600' : (($post->status ?? 'pending') === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600')) }}">{{ $post->status ?? 'Pending' }}</span>
                                 @endif
-                                <div class="flex flex-wrap gap-1 mb-2">
+                                
+                                @if($isUnavailable && in_array(str_replace('_', '-', $post->category), ['buy-sell', 'borrow', 'services']))
+                                    @php $sText = ($post->category === 'borrow' && $post->transaction_status === 'sold') ? 'borrowed out' : $post->transaction_status; @endphp
+                                    <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2 bg-slate-800 text-white">{{ $sText }}</span>
+                                @endif
+
+                                <div class="flex flex-wrap gap-1 mb-3">
                                     @php $decodedTags = is_string($post->tags) ? json_decode($post->tags, true) : $post->tags; @endphp
-                                    @if(is_array($decodedTags)) @foreach($decodedTags as $t) <span class="text-[8px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">{{ $t }}</span> @endforeach @endif
+                                    @if(is_array($decodedTags)) @foreach($decodedTags as $t) <span class="text-[9px] bg-slate-100 text-slate-500 px-2 py-1 rounded-md font-bold uppercase tracking-widest">{{ $t }}</span> @endforeach @endif
                                 </div>
-                                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                    <span class="flex items-center gap-2">
-                                        @if($post->user && $post->user->profile_picture)
-                                            <img src="{{ asset('uploads/profiles/' . basename($post->user->profile_picture)) }}" class="w-6 h-6 rounded-full object-cover border border-slate-100 shadow-sm">
-                                        @else
-                                            <div class="w-6 h-6 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center border border-slate-100 shadow-sm"><i class="fas fa-user text-[10px]"></i></div>
-                                        @endif
-                                        <span class="text-[#36B3C9]">{{ $post->user ? $post->user->official_name : 'Neighbor' }}</span>
-                                    </span>
-                                    <span class="h-1 w-1 bg-slate-200 rounded-full"></span>
-                                    @if($showLocation && $post->location) <span class="text-red-400 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span> @endif
-                                    @if($isEvent && $post->event_date) <span class="text-orange-400">{{ \Carbon\Carbon::parse($post->event_date)->format('M d, Y') }}</span> @else {{ $post->created_at->diffForHumans() }} @endif
-                                </p>
+                                
+                                <div class="flex items-center justify-between mt-2">
+                                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
+                                        <span class="flex items-center gap-2">
+                                            @if($pfp)
+                                                <img src="{{ $pfp }}" class="w-6 h-6 rounded-full object-cover border border-slate-200 shadow-sm">
+                                            @else
+                                                <div class="w-6 h-6 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center border border-slate-200 shadow-sm"><i class="fas fa-user text-[10px]"></i></div>
+                                            @endif
+                                            <span class="text-[#36B3C9]">{{ $post->user ? $post->user->official_name : 'Neighbor' }}</span>
+                                        </span>
+                                        <span class="h-1.5 w-1.5 bg-slate-200 rounded-full"></span>
+                                        @if($showLocation && $post->location) <span class="text-red-400 flex items-center gap-1.5"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</span><span class="h-1.5 w-1.5 bg-slate-200 rounded-full"></span> @endif
+                                        @if($isEvent && $post->event_date) <span class="text-orange-400"><i class="fas fa-calendar mr-1"></i>{{ \Carbon\Carbon::parse($post->event_date)->format('M d, Y') }}</span> @endif
+                                    </p>
+                                    <span class="text-[10px] font-black text-slate-300 uppercase tracking-widest"><i class="far fa-clock mr-1"></i>{{ $post->created_at->diffForHumans() }}</span>
+                                </div>
                             </div>
                         </div>
                     @else
-                        <div class="aspect-square bg-slate-50 flex items-center justify-center overflow-hidden mb-5 rounded-[2rem] relative">
+                        <div class="aspect-square bg-slate-50 flex items-center justify-center overflow-hidden mb-4 rounded-[2rem] relative w-full group-hover:shadow-md transition-all duration-300">
                             @php $imgs = is_array($post->image) ? $post->image : json_decode($post->image, true); @endphp
                             @if($imgs && count($imgs) > 0)
                                 <img src="{{ asset('uploads/' . $imgs[0]) }}" class="w-full h-full object-cover transition duration-700 group-hover:scale-110">
@@ -268,7 +324,20 @@
                             @else
                                 <i class="fas fa-camera text-slate-200 text-4xl group-hover:text-[#36B3C9] transition"></i>
                             @endif
+                            
+                            @if($hasWishlistFeature)
+                                <button onclick="toggleWishlist(event, {{ $post->id }}, this)" class="absolute top-3 right-3 bg-white/80 backdrop-blur-md w-8 h-8 rounded-full flex items-center justify-center shadow-sm transition-colors z-10 text-sm {{ $isWishlisted ? 'text-yellow-400' : 'text-slate-300 hover:text-yellow-400' }}">
+                                    <i class="{{ $isWishlisted ? 'fas' : 'far' }} fa-bookmark"></i>
+                                </button>
+                            @endif
+
+                            @if($isUnavailable && in_array(str_replace('_', '-', $post->category), ['buy-sell', 'borrow', 'services']))
+                                @php $sText = ($post->category === 'borrow' && $post->transaction_status === 'sold') ? 'borrowed out' : $post->transaction_status; @endphp
+                                <div class="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-md text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-sm z-10">{{ $sText }}</div>
+                            @endif
+
                             <div class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md text-red-500 text-[10px] px-2 py-1 rounded-lg font-black shadow-sm flex items-center gap-1"><i class="fas fa-heart"></i> {{ $post->likes->count() }}</div>
+                            
                             @if($post->tags)
                                 <div class="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[80%]">
                                     @php $displayTags = is_string($post->tags) ? json_decode($post->tags, true) : $post->tags; @endphp
@@ -279,27 +348,32 @@
                                 </div>
                             @endif
                         </div>
-                        <div class="px-1">
-                            <p class="font-black text-slate-800 text-lg leading-tight truncate">{{ $post->title }}</p>
-                            <div class="flex items-center justify-between mt-1">
-                                <div class="flex flex-col">
-                                    <span class="flex items-center gap-2 mt-1">
-                                        @if($post->user && $post->user->profile_picture)
-                                            <img src="{{ asset('uploads/profiles/' . basename($post->user->profile_picture)) }}" class="w-5 h-5 rounded-full object-cover border border-white shadow-sm flex-shrink-0">
+                        
+                        <div class="px-2 flex flex-col flex-1 justify-between w-full">
+                            <div>
+                                <p class="font-black text-slate-800 text-lg leading-tight truncate mb-2">{{ $post->title }}</p>
+                                <div class="flex flex-col gap-1.5">
+                                    <span class="flex items-center gap-2">
+                                        @if($pfp)
+                                            <img src="{{ $pfp }}" class="w-5 h-5 rounded-full object-cover border border-slate-200 shadow-sm flex-shrink-0">
                                         @else
-                                            <div class="w-5 h-5 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center border border-white shadow-sm flex-shrink-0"><i class="fas fa-user text-[8px]"></i></div>
+                                            <div class="w-5 h-5 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center border border-slate-200 shadow-sm flex-shrink-0"><i class="fas fa-user text-[8px]"></i></div>
                                         @endif
-                                        <p class="text-[10px] font-bold text-slate-400 truncate">{{ $post->user ? $post->user->official_name : 'User' }}</p>
+                                        <p class="text-[10px] font-bold text-slate-500 truncate">{{ $post->user ? $post->user->official_name : 'User' }}</p>
                                     </span>
-                                    @if($showLocation && $post->location) <p class="text-[9px] font-bold text-red-400 mt-1 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
+                                    @if($showLocation && $post->location) <p class="text-[9px] font-bold text-red-400 flex items-center gap-1 truncate"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
                                 </div>
+                            </div>
+                            
+                            <div class="flex items-center justify-between mt-4 pt-3 border-t border-slate-50">
+                                <span class="text-[9px] font-black text-slate-300 uppercase tracking-widest"><i class="far fa-clock mr-1"></i>{{ $post->created_at->diffForHumans(null, true, true) }}</span>
                                 @if($isBuySell) <p class="text-sm font-black text-[#36B3C9]">@if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif</p> @endif
                             </div>
                         </div>
                     @endif
 
                     @if($isAdmin || $isModerator || Auth::id() === $post->user_id)
-                        <button onclick="event.stopPropagation(); triggerDelete({{ $post->id }})" class="absolute top-4 right-4 text-slate-200 hover:text-red-500 p-2 transition opacity-0 group-hover:opacity-100 bg-white/80 rounded-full hover:bg-white shadow-sm backdrop-blur-sm z-10"><i class="fas fa-trash-alt"></i></button>
+                        <button onclick="event.stopPropagation(); triggerDelete({{ $post->id }})" class="absolute top-4 left-4 text-slate-200 hover:text-red-500 p-2 transition opacity-0 group-hover:opacity-100 bg-white/80 rounded-full hover:bg-white shadow-sm backdrop-blur-sm z-10"><i class="fas fa-trash-alt"></i></button>
                     @endif
                 </div>
             @empty
@@ -401,7 +475,7 @@
                 <div class="border-2 border-dashed border-slate-100 rounded-[2rem] p-8 text-center group hover:border-[#36B3C9] hover:bg-slate-50 cursor-pointer relative mt-4">
                     <input type="file" name="images[]" id="imagesInput" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" multiple accept="image/*">
                     <i class="fas fa-camera text-3xl text-slate-200 group-hover:text-[#36B3C9] mb-3"></i>
-                    <span class="block text-[10px] font-black text-slate-300 uppercase tracking-widest">Add Photos <span class="normal-case font-normal">(Optional)</span></span>
+                    <span class="block text-[10px] font-black text-slate-300 uppercase tracking-widest">Add Photos</span>
                 </div>
                 <div id="imagePreviewContainer" class="grid grid-cols-4 gap-3"></div>
                 <button type="submit" class="w-full bg-[#36B3C9] text-white font-black py-5 rounded-[1.8rem] shadow-xl shadow-cyan-100 mt-4 transition hover:brightness-110 active:scale-95 uppercase tracking-widest text-xs">Submit</button>
@@ -423,7 +497,7 @@
                 <div class="flex items-center justify-between mb-8">
                     <div class="flex items-center gap-4">
                         <div id="detUserPfpContainer" class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl overflow-hidden shadow-sm">
-                            <i class="fas fa-user-circle"></i>
+                            <i class="fas fa-user"></i>
                         </div>
                         <div>
                             <p id="detUser" class="text-lg font-black text-slate-800 leading-none mb-1"></p>
@@ -431,12 +505,18 @@
                             <p id="detDate" class="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1"></p>
                         </div>
                     </div>
-                    <div id="likeButtonContainer"></div>
+                    
+                    <div class="flex items-center gap-2">
+                        <div id="wishlistButtonContainer"></div>
+                        <div id="likeButtonContainer"></div>
+                    </div>
                 </div>
 
+                <div id="detStatusBanner" class="hidden"></div>
+                
                 <div id="detTitleContainer" class="mb-6"></div>
                 <div class="flex flex-wrap items-center gap-3 mb-6">
-                    <div id="detPrice" class="w-full"></div>
+                    <div id="detPrice" class="w-full sm:w-auto"></div>
                     <div id="detConditionContainer"></div>
                     <div id="detTagsContainer" class="flex gap-2"></div> 
                 </div>
@@ -448,6 +528,8 @@
                     <div id="detailMap" class="w-full h-[250px] rounded-[2rem] z-0 border border-slate-100 shadow-sm bg-slate-900"></div>
                 </div>
 
+                <div id="sellerStatusContainer"></div>
+
                 <div id="adminAppointmentControls"></div>
                 
                 <div class="mt-8 flex flex-col gap-4">
@@ -456,6 +538,31 @@
                     <div id="detReportContainer"></div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="reportModal" class="hidden fixed inset-0 z-[150] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md transition-all">
+        <div class="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative animate-pop">
+            <button onclick="closeReportModal()" class="absolute top-8 right-8 text-slate-300 hover:text-slate-800 transition"><i class="fas fa-times text-xl"></i></button>
+            
+            <div class="w-16 h-16 bg-red-50 text-red-500 rounded-[1.5rem] flex items-center justify-center text-3xl mb-6 shadow-sm"><i class="fas fa-flag"></i></div>
+            <h2 class="text-3xl font-black mb-1 uppercase tracking-tighter text-slate-800">Report Post</h2>
+            <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-8">Help us keep the community safe.</p>
+            
+            <form id="reportForm" method="POST" class="space-y-5">
+                @csrf
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Reason for reporting</label>
+                    <select name="reason" required class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold text-sm text-slate-700 cursor-pointer shadow-sm focus:ring-2 focus:ring-red-200">
+                        <option value="" disabled selected>Select a reason...</option>
+                        <option value="spam">Spam or Misleading</option>
+                        <option value="harassment">Harassment or Abusive</option>
+                        <option value="inappropriate">Inappropriate Content</option>
+                        <option value="scam">Scam or Fraud</option>
+                    </select>
+                </div>
+                <button type="submit" class="w-full bg-red-500 text-white font-black py-5 rounded-[1.8rem] shadow-xl shadow-red-200 mt-4 transition hover:bg-red-600 active:scale-95 uppercase tracking-widest text-xs">Submit Report</button>
+            </form>
         </div>
     </div>
 
@@ -490,6 +597,7 @@
     @endif
 
     <script>
+        const isUserVerified = {{ (Auth::check() && Auth::user()->is_verified) ? 'true' : 'false' }};
         let currentIdx = 0; let totalImgs = 0; let selectedFiles = [];
         let currentDetailPostId = null;
 
@@ -500,6 +608,51 @@
         );
         let formMap = null; let formMarker = null;
         let detailMapObj = null; let detailMarker = null;
+
+        // Toggle Wishlist JS
+        function toggleWishlist(event, postId, btnElement) {
+            event.stopPropagation();
+            
+            fetch(`/post/${postId}/wishlist`, { 
+                method: 'POST', 
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'X-CSRF-TOKEN': getCsrfToken() 
+                } 
+            })
+            .then(r => r.json())
+            .then(data => {
+                const icon = btnElement.querySelector('i');
+                if(data.saved) {
+                    icon.classList.replace('far', 'fas');
+                    btnElement.classList.replace('text-slate-300', 'text-yellow-400');
+                    btnElement.classList.replace('text-slate-200', 'text-yellow-400');
+                } else {
+                    icon.classList.replace('fas', 'far');
+                    btnElement.classList.replace('text-yellow-400', 'text-slate-300');
+                    btnElement.classList.replace('text-yellow-400', 'text-slate-200');
+                }
+            }).catch(e => console.error(e));
+        }
+
+        // Seller updates status
+        function updateItemStatus(postId, status) {
+            fetch(`/api/post/${postId}/transaction-status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() },
+                body: JSON.stringify({ transaction_status: status })
+            }).then(() => window.location.reload());
+        }
+
+        // Report Modal Functions
+        function openReportModal(postId) {
+            document.getElementById('reportForm').action = `/post/${postId}/report`;
+            toggleModal('detailModal'); 
+            document.getElementById('reportModal').classList.remove('hidden'); 
+        }
+        function closeReportModal() {
+            document.getElementById('reportModal').classList.add('hidden');
+        }
 
         function getCustomIcon(iconCode, category) {
             let icon = 'fa-map-pin';
@@ -532,7 +685,7 @@
             });
         }
 
-        // Floating Map Control (Watermark) for form/details
+        // Floating Map Control (Watermark)
         function addCustomRoadLabel(mapInstance) {
             var signControl = L.control({position: 'topright'});
             signControl.onAdd = function () {
@@ -568,13 +721,11 @@
                 });
                 
                 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-                    maxZoom: 19,
-                    attribution: '© Esri'
+                    maxZoom: 19, attribution: '© Esri'
                 }).addTo(formMap);
 
                 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19,
-                    attribution: '© CartoDB'
+                    maxZoom: 19, attribution: '© CartoDB'
                 }).addTo(formMap);
                 
                 addCustomRoadLabel(formMap); 
@@ -633,7 +784,7 @@
         }
 
         function openRequestModal(docType) {
-            document.getElementById('requestModalTitle').innerText = 'Request: ' + docType;
+            document.getElementById('requestModalTitle').innerText = 'Request ' + docType;
             document.getElementById('requestDocType').value = docType;
             toggleModal('addModal');
         }
@@ -662,7 +813,7 @@
                 r.onload = function(e) {
                     const d = document.createElement('div');
                     d.className = "relative aspect-square rounded-2xl overflow-hidden border shadow-sm animate-pop group";
-                    d.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover"><button type="button" onclick="removeImage(${i})" class="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full text-[10px] flex items-center justify-center shadow-lg transition"><i class="fas fa-times"></i></button>`;
+                    d.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover"><button type="button" onclick="removeImage(${i})" class="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white w-7 h-7 rounded-full text-[10px] flex items-center justify-center shadow-lg transition-transform hover:scale-110"><i class="fas fa-times"></i></button>`;
                     c.appendChild(d);
                 };
                 r.readAsDataURL(f);
@@ -702,7 +853,7 @@
                         if (parts.length >= 5) {
                             let year = parts[0], month = parts[1], day = parts[2], hour = parts[3], min = parts[4];
                             let localDate = new Date(year, month - 1, day, hour, min);
-                            displayDateTime = localDate.toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                            displayDateTime = localDate.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                             inputDateTime = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
                         } else if (parts.length >= 3) {
                             let year = parts[0], month = parts[1], day = parts[2];
@@ -735,16 +886,16 @@
                         descEl.classList.add('hidden');
                     }
                     
-                    document.getElementById('detUser').innerText = d.user ? (d.user.official_name || d.user.name) : 'Neighbor';
-
-                    // 👇 Extract exact filename for Profile Picture 👇
+                    // Detail Modal PFP
                     const pfpContainer = document.getElementById('detUserPfpContainer');
                     if(d.user && d.user.profile_picture) {
                         let filename = d.user.profile_picture.split('/').pop();
-                        pfpContainer.innerHTML = `<img src="/uploads/profiles/${filename}" class="w-14 h-14 rounded-2xl object-cover border-4 border-white shadow-md flex-shrink-0">`;
+                        pfpContainer.innerHTML = `<img src="/uploads/profiles/${filename}" class="w-full h-full object-cover">`;
                     } else {
-                        pfpContainer.innerHTML = `<div class="w-14 h-14 rounded-2xl bg-slate-100 text-slate-300 flex items-center justify-center border-4 border-white shadow-md flex-shrink-0"><i class="fas fa-user text-2xl"></i></div>`;
+                        pfpContainer.innerHTML = `<i class="fas fa-user text-xl"></i>`;
                     }
+
+                    document.getElementById('detUser').innerText = d.user ? (d.user.official_name || d.user.name) : 'Neighbor';
 
                     const locEl = document.getElementById('detLocation');
                     if (d.location) {
@@ -773,11 +924,40 @@
                          likeContainer.innerHTML = `<div class="flex items-center gap-2 px-4 py-2 rounded-xl border text-slate-300 bg-slate-50 border-slate-100"><i class="fas fa-heart text-xl"></i><span class="font-black text-sm">${d.likes_count}</span></div>`;
                     }
 
+                    // Wishlist Button Rendering for Detail Modal
+                    const wishlistContainer = document.getElementById('wishlistButtonContainer');
+                    if (['buy-sell', 'borrow', 'services'].includes(d.category.replace('_', '-'))) {
+                        const wClass = d.is_wishlisted_by_user ? 'fas text-yellow-400' : 'far text-slate-300';
+                        wishlistContainer.innerHTML = `<button onclick="toggleWishlist(event, ${d.id}, this)" class="w-10 h-10 rounded-xl border bg-slate-50 border-slate-100 hover:bg-yellow-50 flex items-center justify-center transition shadow-sm text-lg hover:text-yellow-400"><i class="${wClass} fa-bookmark"></i></button>`;
+                    } else {
+                        wishlistContainer.innerHTML = '';
+                    }
+
+                    // 👇 NEW: Pending / Sold Status Banner in Detail Modal 👇
+                    const statusBanner = document.getElementById('detStatusBanner');
+                    if (['buy-sell', 'borrow', 'services'].includes(d.category.replace('_', '-')) && d.transaction_status && d.transaction_status !== 'available') {
+                        let statusMsg = '';
+                        let sColor = '';
+                        if (d.transaction_status === 'reserved') {
+                            statusMsg = 'This item is currently pending or reserved.';
+                            sColor = 'bg-yellow-100 text-yellow-700 border-yellow-200';
+                        } else {
+                            statusMsg = d.category === 'borrow' ? 'This item is currently borrowed out.' : 'This item is already sold or unavailable.';
+                            sColor = 'bg-slate-200 text-slate-700 border-slate-300';
+                        }
+                        statusBanner.innerHTML = `<div class="p-4 rounded-2xl mb-6 font-black uppercase tracking-widest text-xs flex items-center gap-3 border shadow-sm ${sColor}"><i class="fas fa-info-circle text-2xl"></i> ${statusMsg}</div>`;
+                        statusBanner.classList.remove('hidden');
+                    } else {
+                        statusBanner.innerHTML = '';
+                        statusBanner.classList.add('hidden');
+                    }
+
                     const conditionContainer = document.getElementById('detConditionContainer');
                     if(d.condition && d.category !== 'places') {
-                        conditionContainer.innerHTML = `<div class="bg-slate-800 text-white px-4 py-1 rounded-lg text-xs font-black uppercase tracking-widest">${d.condition}</div>`;
+                        conditionContainer.innerHTML = `<div class="bg-slate-800 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm">${d.condition}</div>`;
                     } else { conditionContainer.innerHTML = ''; }
 
+                    // We restored your original Tags functionality!
                     const tagContainer = document.getElementById('detTagsContainer');
                     tagContainer.innerHTML = '';
                     if(d.tags) {
@@ -786,7 +966,7 @@
                         if(Array.isArray(tagsArray)) {
                             tagsArray.forEach(t => {
                                 const badge = document.createElement('div');
-                                badge.className = "bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest";
+                                badge.className = "bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest";
                                 badge.innerText = t;
                                 tagContainer.appendChild(badge);
                             });
@@ -816,12 +996,30 @@
                         adminControls.innerHTML = '';
                         titleContainer.innerHTML = `<h2 class="text-5xl font-black tracking-tighter leading-none text-slate-800 uppercase">${d.title}</h2>`;
                         if(d.category === 'events' && d.event_date) {
-                            priceEl.innerHTML = `<span class="text-xs font-black text-slate-300 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${displayDateTime || new Date(d.event_date).toLocaleDateString()}</span>`;
+                            priceEl.innerHTML = `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Happening On</span><span class="text-3xl font-black text-orange-400">${displayDateTime || new Date(d.event_date).toLocaleDateString()}</span>`;
                         } else if(isBuySell) {
                             priceEl.innerHTML = `<span class="text-3xl font-black text-[#36B3C9]">${d.price ? '₱' + parseFloat(d.price).toLocaleString() : 'Free / Offer'}</span>`;
                         } else {
                             priceEl.innerHTML = '';
                         }
+                    }
+
+                    // SELLER STATUS DROPDOWN
+                    const statusContainer = document.getElementById('sellerStatusContainer');
+                    if (currentUserId === d.user_id && ['buy-sell', 'services', 'borrow'].includes(d.category.replace('_', '-'))) {
+                        let soldText = d.category === 'borrow' ? 'Borrowed Out' : (d.category === 'services' ? 'Unavailable' : 'Sold');
+                        statusContainer.innerHTML = `
+                            <div class="mt-6 bg-slate-50 p-5 rounded-[1.5rem] border border-slate-100">
+                                <label class="text-[10px] font-black uppercase tracking-widest text-slate-400">Update Item Status</label>
+                                <select onchange="updateItemStatus(${d.id}, this.value)" class="w-full mt-2 rounded-[1rem] border-none bg-white font-bold text-sm text-slate-700 cursor-pointer shadow-sm focus:ring-2 focus:ring-[#36B3C9]/20">
+                                    <option value="available" ${d.transaction_status === 'available' ? 'selected' : ''}>Available</option>
+                                    <option value="reserved" ${d.transaction_status === 'reserved' ? 'selected' : ''}>Reserved / Pending</option>
+                                    <option value="sold" ${d.transaction_status === 'sold' ? 'selected' : ''}>${soldText}</option>
+                                </select>
+                            </div>
+                        `;
+                    } else {
+                        statusContainer.innerHTML = '';
                     }
 
                     const contactArea = document.getElementById('contactButtonContainer');
@@ -832,20 +1030,26 @@
                             const safeTitle = d.title.replace(/['"]/g, '');
                             const ownerName = d.user ? (d.user.official_name || d.user.name).replace(/['"]/g, '') : 'Owner';
                             
-                            if(isBuySell) {
-                                contactArea.innerHTML = `
-                                    <div class="flex flex-col gap-3 w-full">
-                                         <div class="flex rounded-2xl shadow-lg shadow-cyan-100/50 overflow-hidden border border-[#36B3C9]/20">
-                                            <span class="bg-slate-50 flex items-center pl-4 text-slate-400 font-black">₱</span>
-                                            <input type="number" id="offerInput" placeholder="Offer Amount" class="flex-1 border-none bg-slate-50 px-2 font-bold text-slate-800 focus:ring-0">
-                                            <button onclick="sendOffer('${ownerName}', '${safeTitle}')" class="bg-[#36B3C9] text-white px-6 py-4 font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition">Make Offer</button>
-                                         </div>
-                                         <button onclick="openChatBox(${d.id}, '${ownerName}', '${safeTitle}')" class="w-full bg-white text-slate-400 font-bold py-3 rounded-2xl border border-slate-200 hover:bg-slate-50 hover:text-slate-600 transition uppercase tracking-widest text-[10px]">Just Message</button>
-                                    </div>
-                                `;
+                            // 👇 LOCKED MESSAGING FOR UNVERIFIED USERS 👇
+                            if (!isUserVerified) {
+                                contactArea.innerHTML = `<button onclick="alert('You must be verified by the Admin to interact and message other users. Please go to your Profile and upload your ID or Certificate of Indigency.')" class="w-full bg-slate-300 text-white font-black py-4 rounded-2xl shadow-sm flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] cursor-not-allowed"><i class="fas fa-lock"></i> Verify to Message</button>`;
                             } else {
-                                contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${ownerName}', '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
+                                if(isBuySell) {
+                                    contactArea.innerHTML = `
+                                        <div class="flex flex-col gap-3 w-full">
+                                             <div class="flex rounded-2xl shadow-lg shadow-cyan-100/50 overflow-hidden border border-[#36B3C9]/20">
+                                                <span class="bg-slate-50 flex items-center pl-4 text-slate-400 font-black">₱</span>
+                                                <input type="number" id="offerInput" placeholder="Offer Amount" class="flex-1 border-none bg-slate-50 px-2 font-bold text-slate-800 focus:ring-0">
+                                                <button onclick="sendOffer('${ownerName}', '${safeTitle}')" class="bg-[#36B3C9] text-white px-6 py-4 font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition">Make Offer</button>
+                                             </div>
+                                             <button onclick="openChatBox(${d.id}, '${ownerName}', '${safeTitle}')" class="w-full bg-white text-slate-400 font-bold py-3 rounded-2xl border border-slate-200 hover:bg-slate-50 hover:text-slate-600 transition uppercase tracking-widest text-[10px]">Just Message</button>
+                                        </div>
+                                    `;
+                                } else {
+                                    contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${ownerName}', '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
+                                }
                             }
+                            // 👆 --------------------------------------- 👆
                         }
                     }
                     
@@ -854,28 +1058,10 @@
                         deleteArea.innerHTML = `<button onclick="triggerDelete(${d.id})" class="w-full bg-slate-50 text-red-500 font-black py-4 rounded-2xl hover:bg-red-50 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-trash-alt"></i> Remove</button>`;
                     } else { deleteArea.innerHTML = ''; }
 
+                    // Report Button Popup
                     const reportArea = document.getElementById('detReportContainer');
                     if (currentUserId !== null && currentUserId !== d.user_id && userRole !== 'admin' && userRole !== 'moderator') {
-                        reportArea.innerHTML = `
-                            <form action="/post/${d.id}/report" method="POST" class="flex flex-col sm:flex-row items-center gap-3 bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
-                                <input type="hidden" name="_token" value="${getCsrfToken()}">
-                                <div class="flex items-center text-red-400 font-black text-xs uppercase tracking-widest mr-2">
-                                    <i class="fas fa-flag mr-2"></i> Report
-                                </div>
-                                <div class="flex-1 w-full">
-                                    <select name="reason" required class="w-full text-xs font-bold text-slate-600 bg-white border-none rounded-xl focus:ring-2 focus:ring-red-200 cursor-pointer py-3 px-4 shadow-sm">
-                                        <option value="" disabled selected>Why are you reporting this?</option>
-                                        <option value="spam">Spam or Misleading</option>
-                                        <option value="harassment">Harassment or Abusive</option>
-                                        <option value="inappropriate">Inappropriate Content</option>
-                                        <option value="scam">Scam or Fraud</option>
-                                    </select>
-                                </div>
-                                <button type="submit" class="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-black text-[10px] uppercase tracking-widest px-6 py-3.5 rounded-xl transition shadow-md shadow-red-200 active:scale-95">
-                                    Submit
-                                </button>
-                            </form>
-                        `;
+                        reportArea.innerHTML = `<button onclick="openReportModal(${d.id})" class="w-full bg-slate-50 text-slate-400 font-black py-4 rounded-2xl hover:bg-red-50 hover:text-red-500 transition flex items-center justify-center gap-2 uppercase tracking-widest text-[10px]"><i class="fas fa-flag"></i> Report Post</button>`;
                     } else { reportArea.innerHTML = ''; }
 
                     const imgSection = document.getElementById('detailImageSection'); 
@@ -1186,11 +1372,11 @@
             }).catch(e => console.error("Error toggling like:", e));
         }
 
-        function sendOffer(postTitle) {
+        function sendOffer(postOwnerName, postTitle) {
             const amount = document.getElementById('offerInput').value;
             if (!amount || !currentDetailPostId) return alert("Please enter an offer amount.");
             const formattedAmount = new Intl.NumberFormat().format(amount);
-            openChatBox(currentDetailPostId, postTitle, `[OFFER-${formattedAmount}]`);
+            openChatBox(currentDetailPostId, postOwnerName, postTitle, `[OFFER-${formattedAmount}]`);
         }
 
         function respondToOffer(postId, amount, action) {
@@ -1198,30 +1384,23 @@
             document.querySelector(`#chatBox-${postId} form`).dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
         }
 
-        // ============================================================
-        // FULLSCREEN MAP FUNCTIONALITY
-        // ============================================================
         window.togglePlacesFullscreen = function(e) {
             if (e) e.preventDefault();
             const mapContainer = document.getElementById('placesMap');
             const icon = document.getElementById('fs-icon');
             
             if (!mapContainer.classList.contains('fixed')) {
-                // Maximize
                 mapContainer.classList.remove('relative', 'h-[60vh]', 'rounded-[2rem]', 'z-0');
                 mapContainer.classList.add('fixed', 'inset-0', 'w-screen', 'h-screen', 'z-[9999]', 'rounded-none');
                 icon.classList.replace('fa-expand', 'fa-compress');
             } else {
-                // Minimize
                 mapContainer.classList.remove('fixed', 'inset-0', 'w-screen', 'h-screen', 'z-[9999]', 'rounded-none');
                 mapContainer.classList.add('relative', 'w-full', 'h-[60vh]', 'rounded-[2rem]', 'z-0');
                 icon.classList.replace('fa-compress', 'fa-expand');
             }
-            // Give Leaflet time to redraw the tiles after resizing
             setTimeout(() => { if(window.placesMapInstance) window.placesMapInstance.invalidateSize(); }, 300);
         };
 
-        // 👇 MAIN PLACES MAP 👇
         @if($normalizedType === 'places')
         document.addEventListener('DOMContentLoaded', function() {
             var map = L.map('placesMap', {
@@ -1231,9 +1410,8 @@
                 maxBounds: baybayPolongBounds,
                 maxBoundsViscosity: 1.0
             });
-            window.placesMapInstance = map; // Store globally for fullscreen toggle
+            window.placesMapInstance = map; 
 
-            // Add Maximize button
             var fullscreenBtn = L.control({position: 'topleft'});
             fullscreenBtn.onAdd = function() {
                 var div = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-custom');
