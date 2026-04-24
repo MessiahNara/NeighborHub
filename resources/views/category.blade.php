@@ -75,7 +75,7 @@
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
     $isModerator = (Auth::check() && Auth::user()->role === 'moderator');
 
-    // 👇 NEW: Check if category requires verification to post 👇
+    // 👇 Check if category requires verification to post 👇
     $requiresVerification = in_array($normalizedType, ['buy-sell', 'borrow', 'services']);
     $isVerified = (Auth::check() && Auth::user()->is_verified == 1);
     $canPost = !$requiresVerification || $isVerified || $isAdmin;
@@ -245,7 +245,15 @@
                                     @if(is_array($decodedTags)) @foreach($decodedTags as $t) <span class="text-[8px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-widest">{{ $t }}</span> @endforeach @endif
                                 </div>
                                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                    <span class="text-[#36B3C9]">{{ $post->user->name ?? 'Neighbor' }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span>
+                                    <span class="flex items-center gap-2">
+                                        @if($post->user && $post->user->profile_picture)
+                                            <img src="{{ asset('uploads/profiles/' . basename($post->user->profile_picture)) }}" class="w-6 h-6 rounded-full object-cover border border-slate-100 shadow-sm">
+                                        @else
+                                            <div class="w-6 h-6 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center border border-slate-100 shadow-sm"><i class="fas fa-user text-[10px]"></i></div>
+                                        @endif
+                                        <span class="text-[#36B3C9]">{{ $post->user ? $post->user->official_name : 'Neighbor' }}</span>
+                                    </span>
+                                    <span class="h-1 w-1 bg-slate-200 rounded-full"></span>
                                     @if($showLocation && $post->location) <span class="text-red-400 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span> @endif
                                     @if($isEvent && $post->event_date) <span class="text-orange-400">{{ \Carbon\Carbon::parse($post->event_date)->format('M d, Y') }}</span> @else {{ $post->created_at->diffForHumans() }} @endif
                                 </p>
@@ -275,8 +283,15 @@
                             <p class="font-black text-slate-800 text-lg leading-tight truncate">{{ $post->title }}</p>
                             <div class="flex items-center justify-between mt-1">
                                 <div class="flex flex-col">
-                                    <p class="text-[10px] font-bold text-slate-300">{{ $post->user->name ?? 'User' }}</p>
-                                    @if($showLocation && $post->location) <p class="text-[9px] font-bold text-red-400 mt-0.5 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
+                                    <span class="flex items-center gap-2 mt-1">
+                                        @if($post->user && $post->user->profile_picture)
+                                            <img src="{{ asset('uploads/profiles/' . basename($post->user->profile_picture)) }}" class="w-5 h-5 rounded-full object-cover border border-white shadow-sm flex-shrink-0">
+                                        @else
+                                            <div class="w-5 h-5 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center border border-white shadow-sm flex-shrink-0"><i class="fas fa-user text-[8px]"></i></div>
+                                        @endif
+                                        <p class="text-[10px] font-bold text-slate-400 truncate">{{ $post->user ? $post->user->official_name : 'User' }}</p>
+                                    </span>
+                                    @if($showLocation && $post->location) <p class="text-[9px] font-bold text-red-400 mt-1 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
                                 </div>
                                 @if($isBuySell) <p class="text-sm font-black text-[#36B3C9]">@if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif</p> @endif
                             </div>
@@ -407,7 +422,9 @@
             <div class="p-12">
                 <div class="flex items-center justify-between mb-8">
                     <div class="flex items-center gap-4">
-                        <div class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl"><i class="fas fa-user-circle"></i></div>
+                        <div id="detUserPfpContainer" class="w-14 h-14 rounded-2xl bg-[#36B3C9]/10 flex items-center justify-center text-[#36B3C9] font-bold text-2xl overflow-hidden shadow-sm">
+                            <i class="fas fa-user-circle"></i>
+                        </div>
                         <div>
                             <p id="detUser" class="text-lg font-black text-slate-800 leading-none mb-1"></p>
                             <p id="detLocation" class="text-[10px] font-black text-red-400 uppercase tracking-widest mt-1 mb-1 hidden"><i class="fas fa-map-marker-alt"></i> <span></span></p>
@@ -432,7 +449,12 @@
                 </div>
 
                 <div id="adminAppointmentControls"></div>
-                <div class="grid grid-cols-2 gap-4 mt-8"><div id="contactButtonContainer"></div><div id="detDeleteContainer"></div><div id="detReportContainer" class="col-span-2"></div></div>
+                
+                <div class="mt-8 flex flex-col gap-4">
+                    <div id="contactButtonContainer"></div>
+                    <div id="detDeleteContainer"></div>
+                    <div id="detReportContainer"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -471,7 +493,6 @@
         let currentIdx = 0; let totalImgs = 0; let selectedFiles = [];
         let currentDetailPostId = null;
 
-        // BOUNDING BOX SETUP FOR BAYBAY POLONG
         const baybayPolongCenter = [16.0300, 120.2588]; 
         const baybayPolongBounds = L.latLngBounds(
             [16.0230, 120.2450], 
@@ -590,9 +611,7 @@
                 
                 addCustomRoadLabel(detailMapObj); 
 
-                // Only show name tooltip on places category
-                detailMarker = L.marker([lat, lng], { icon: getCustomIcon(conditionStr, category) })
-                    .addTo(detailMapObj);
+                detailMarker = L.marker([lat, lng], { icon: getCustomIcon(conditionStr, category) }).addTo(detailMapObj);
 
                 if (category === 'places') {
                     detailMarker.bindTooltip(title ? String(title) : "", { 
@@ -716,7 +735,16 @@
                         descEl.classList.add('hidden');
                     }
                     
-                    document.getElementById('detUser').innerText = d.user ? d.user.name : 'Neighbor';
+                    document.getElementById('detUser').innerText = d.user ? (d.user.official_name || d.user.name) : 'Neighbor';
+
+                    // 👇 Extract exact filename for Profile Picture 👇
+                    const pfpContainer = document.getElementById('detUserPfpContainer');
+                    if(d.user && d.user.profile_picture) {
+                        let filename = d.user.profile_picture.split('/').pop();
+                        pfpContainer.innerHTML = `<img src="/uploads/profiles/${filename}" class="w-14 h-14 rounded-2xl object-cover border-4 border-white shadow-md flex-shrink-0">`;
+                    } else {
+                        pfpContainer.innerHTML = `<div class="w-14 h-14 rounded-2xl bg-slate-100 text-slate-300 flex items-center justify-center border-4 border-white shadow-md flex-shrink-0"><i class="fas fa-user text-2xl"></i></div>`;
+                    }
 
                     const locEl = document.getElementById('detLocation');
                     if (d.location) {
@@ -726,7 +754,6 @@
                         locEl.classList.add('hidden');
                     }
 
-                    // Pass category to renderDetailMap — it handles showing/hiding the name label
                     renderDetailMap(d.latitude, d.longitude, d.condition, d.category, d.title);
 
                     document.getElementById('detDate').innerText = new Date(d.created_at).toLocaleDateString();
@@ -803,19 +830,21 @@
                     if(isBuySell || d.category === 'borrow' || d.category === 'services') {
                         if (currentUserId !== null && d.user_id !== currentUserId) {
                             const safeTitle = d.title.replace(/['"]/g, '');
+                            const ownerName = d.user ? (d.user.official_name || d.user.name).replace(/['"]/g, '') : 'Owner';
+                            
                             if(isBuySell) {
                                 contactArea.innerHTML = `
                                     <div class="flex flex-col gap-3 w-full">
                                          <div class="flex rounded-2xl shadow-lg shadow-cyan-100/50 overflow-hidden border border-[#36B3C9]/20">
                                             <span class="bg-slate-50 flex items-center pl-4 text-slate-400 font-black">₱</span>
                                             <input type="number" id="offerInput" placeholder="Offer Amount" class="flex-1 border-none bg-slate-50 px-2 font-bold text-slate-800 focus:ring-0">
-                                            <button onclick="sendOffer('${safeTitle}')" class="bg-[#36B3C9] text-white px-6 py-4 font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition">Make Offer</button>
+                                            <button onclick="sendOffer('${ownerName}', '${safeTitle}')" class="bg-[#36B3C9] text-white px-6 py-4 font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition">Make Offer</button>
                                          </div>
-                                         <button onclick="openChatBox(${d.id}, '${safeTitle}')" class="w-full bg-white text-slate-400 font-bold py-3 rounded-2xl border border-slate-200 hover:bg-slate-50 hover:text-slate-600 transition uppercase tracking-widest text-[10px]">Just Message</button>
+                                         <button onclick="openChatBox(${d.id}, '${ownerName}', '${safeTitle}')" class="w-full bg-white text-slate-400 font-bold py-3 rounded-2xl border border-slate-200 hover:bg-slate-50 hover:text-slate-600 transition uppercase tracking-widest text-[10px]">Just Message</button>
                                     </div>
                                 `;
                             } else {
-                                contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
+                                contactArea.innerHTML = `<button onclick="openChatBox(${d.id}, '${ownerName}', '${safeTitle}')" class="w-full bg-[#36B3C9] text-white font-black py-4 rounded-2xl shadow-xl shadow-cyan-100 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition uppercase tracking-widest text-[10px]"><i class="fas fa-comment-alt"></i> Message User</button>`;
                             }
                         }
                     }
@@ -828,7 +857,7 @@
                     const reportArea = document.getElementById('detReportContainer');
                     if (currentUserId !== null && currentUserId !== d.user_id && userRole !== 'admin' && userRole !== 'moderator') {
                         reportArea.innerHTML = `
-                            <form action="/post/${d.id}/report" method="POST" class="mt-4 flex flex-col sm:flex-row items-center gap-3 bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
+                            <form action="/post/${d.id}/report" method="POST" class="flex flex-col sm:flex-row items-center gap-3 bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
                                 <input type="hidden" name="_token" value="${getCsrfToken()}">
                                 <div class="flex items-center text-red-400 font-black text-xs uppercase tracking-widest mr-2">
                                     <i class="fas fa-flag mr-2"></i> Report
@@ -939,18 +968,17 @@
                             let dateText = lastMsg ? new Date(lastMsg.created_at).toLocaleDateString() : '';
                             let unreadClass = isUnread ? 'bg-white border-l-4 border-[#36B3C9] shadow-md' : 'bg-white border border-slate-100 hover:shadow-sm';
                             let titleClass = isUnread ? 'text-[#36B3C9] font-black' : 'text-slate-700 font-bold';
+                            
                             const safeTitle = conv.post ? conv.post.title.replace(/['"]/g, '') : 'Post';
+                            const otherUserName = otherUser ? (otherUser.official_name || otherUser.name).replace(/['"]/g, '') : 'Deleted User';
 
                             const html = `
-                                <div onclick="openChatFromInbox(${conv.post_id}, '${safeTitle}')" class="p-4 rounded-2xl cursor-pointer transition ${unreadClass}">
+                                <div onclick="openChatFromInbox(${conv.post_id}, '${otherUserName}', '${safeTitle}')" class="p-4 rounded-2xl cursor-pointer transition ${unreadClass}">
                                     <div class="flex justify-between items-start mb-1">
-                                        <span class="text-xs ${titleClass} truncate">${otherUser ? otherUser.name : 'Deleted User'}</span>
+                                        <span class="text-xs ${titleClass} truncate">${otherUserName} <span class="font-normal text-slate-400 mx-1">-</span> ${safeTitle}</span>
                                         <span class="text-[9px] font-bold text-slate-300 ml-2 whitespace-nowrap">${dateText}</span>
                                     </div>
-                                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate mb-1">
-                                        Listing: ${conv.post ? conv.post.title : 'Post'}
-                                    </div>
-                                    <p class="text-xs text-slate-500 truncate ${isUnread ? 'font-bold text-slate-700' : ''}">
+                                    <p class="text-xs text-slate-500 truncate mt-1.5 ${isUnread ? 'font-bold text-slate-700' : ''}">
                                         ${lastMsg && lastMsg.user_id === currentUserId ? '<span class="text-slate-300">You: </span>' : ''}${msgText}
                                     </p>
                                 </div>
@@ -970,12 +998,12 @@
                 }).catch(err => console.error(err));
         }
 
-        function openChatFromInbox(postId, postTitle) { 
+        function openChatFromInbox(postId, postOwnerName, postTitle) { 
             toggleInboxPanel(); 
-            openChatBox(postId, postTitle); 
+            openChatBox(postId, postOwnerName, postTitle); 
         }
 
-        function openChatBox(postId, postTitle = 'Chat', initialMessage = null) {
+        function openChatBox(postId, postOwnerName, postTitle = 'Chat', initialMessage = null) {
             const detailModal = document.getElementById('detailModal');
             if(detailModal && !detailModal.classList.contains('hidden')) { 
                 toggleModal('detailModal'); 
@@ -993,7 +1021,7 @@
                 const boxHtml = `
                     <div id="chatBox-${postId}" class="hidden fixed bottom-0 right-32 sm:right-40 w-80 bg-white border border-slate-200 shadow-2xl rounded-t-2xl flex-col z-[200]">
                         <div class="bg-[#36B3C9] text-white p-4 rounded-t-2xl flex justify-between items-center cursor-pointer shadow-sm" onclick="toggleChatBody(${postId})">
-                            <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> ${postTitle}</span>
+                            <span class="font-black uppercase tracking-widest text-[10px] truncate"><i class="fas fa-comment-dots mr-2"></i> ${postOwnerName} - ${postTitle}</span>
                             <button onclick="closeChatBox(${postId}, event)" class="text-white hover:text-slate-200 text-lg leading-none transition">&times;</button>
                         </div>
                         <div id="chatBody-${postId}" class="flex flex-col">
@@ -1253,9 +1281,7 @@
             @endforeach
         });
         @endif
-        // 👆 -------------------------------------------------------------------- 👆
 
-        // 👇 EVENTS CALENDAR INITIALIZATION 👇
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
@@ -1271,7 +1297,6 @@
             }
         });
         @endif
-        // 👆 ------------------------------ 👆
 
         document.addEventListener('DOMContentLoaded', function() {
             const flashMsg = document.getElementById('flash-message');
@@ -1279,7 +1304,7 @@
                 setTimeout(() => {
                     flashMsg.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
                     flashMsg.style.opacity = '0';
-                    flashMsg.style.transform = 'translate(-50%, -20px)'; // slight float up effect
+                    flashMsg.style.transform = 'translate(-50%, -20px)';
                     setTimeout(() => flashMsg.remove(), 500);
                 }, 5000);
             }
@@ -1296,7 +1321,7 @@
                 fetch(`/api/post/${chatIdToOpen}`)
                     .then(r => r.json())
                     .then(d => { 
-                        openChatBox(d.id, d.title.replace(/['"]/g, '')); 
+                        openChatBox(d.id, (d.user ? (d.user.official_name || d.user.name) : 'Owner'), d.title.replace(/['"]/g, '')); 
                     }); 
                 window.history.replaceState({}, document.title, window.location.pathname); 
             }
