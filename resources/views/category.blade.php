@@ -42,7 +42,7 @@
         .leaflet-tooltip-top.landmark-label::before { border-top-color: rgba(255, 255, 255, 0.95); }
         
         .leaflet-tooltip.welcome-label {
-            background: #e11d48;
+            background: #e11d48; /* Red 600 */
             color: white;
             border: 2px solid white;
             border-radius: 9999px;
@@ -74,6 +74,11 @@
     $isAdminOnly = in_array($normalizedType, $adminOnlyCategories);
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
     $isModerator = (Auth::check() && Auth::user()->role === 'moderator');
+
+    // 👇 NEW: Check if category requires verification to post 👇
+    $requiresVerification = in_array($normalizedType, ['buy-sell', 'borrow', 'services']);
+    $isVerified = (Auth::check() && Auth::user()->is_verified == 1);
+    $canPost = !$requiresVerification || $isVerified || $isAdmin;
 
     $useGrid = ($isBuySell || $isBorrow || in_array($normalizedType, ['services', 'places']));
     
@@ -158,13 +163,19 @@
                     </button>
                 @endif
             @elseif(!$isRequest && (!$isAdminOnly || $isAdmin || $isModerator))
-                <button onclick="toggleModal('addModal')" class="bg-[#36B3C9] text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-cyan-100 transition hover:brightness-110 active:scale-95 flex items-center gap-2">
-                    @if($isComplaint)
-                        <i class="fas fa-exclamation-triangle"></i> <span class="hidden md:inline">File a Complaint</span>
-                    @else
-                        <i class="fas fa-plus"></i> <span class="hidden md:inline">Post</span>
-                    @endif
-                </button>
+                @if(!$canPost)
+                    <button onclick="alert('You must be verified by the Admin to post here. Please go to your Profile and upload your ID or Certificate of Indigency.')" class="bg-slate-300 text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-sm flex items-center gap-2 cursor-not-allowed">
+                        <i class="fas fa-lock"></i> <span class="hidden md:inline">Unverified</span>
+                    </button>
+                @else
+                    <button onclick="toggleModal('addModal')" class="bg-[#36B3C9] text-white h-12 px-6 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-cyan-100 transition hover:brightness-110 active:scale-95 flex items-center gap-2">
+                        @if($isComplaint)
+                            <i class="fas fa-exclamation-triangle"></i> <span class="hidden md:inline">File a Complaint</span>
+                        @else
+                            <i class="fas fa-plus"></i> <span class="hidden md:inline">Post</span>
+                        @endif
+                    </button>
+                @endif
             @endif
         </div>
     </nav>
@@ -196,14 +207,14 @@
         @endif
 
         @if($isPlaces)
-            <div class="relative z-10 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-12 p-4">
+            <div class="relative z-10 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-12 p-4 transition-all duration-300">
                 <div class="flex justify-between items-center px-4 pt-2 pb-4">
                     <h2 class="text-3xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
                         <i class="fas fa-map-marked-alt text-[#36B3C9]"></i> Baybay Polong Map
                     </h2>
                     <p class="text-slate-400 font-bold text-xs uppercase tracking-widest hidden md:block">Click any pin for details</p>
                 </div>
-                <div id="placesMap" class="w-full h-[60vh] rounded-[2rem] z-0 bg-slate-900"></div>
+                <div id="placesMap" class="w-full h-[60vh] rounded-[2rem] z-0 bg-slate-900 transition-all duration-300 relative"></div>
             </div>
         @endif
 
@@ -235,7 +246,7 @@
                                 </div>
                                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                     <span class="text-[#36B3C9]">{{ $post->user->name ?? 'Neighbor' }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span>
-                                    @if($post->location) <span class="text-red-400 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span> @endif
+                                    @if($showLocation && $post->location) <span class="text-red-400 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</span><span class="h-1 w-1 bg-slate-200 rounded-full"></span> @endif
                                     @if($isEvent && $post->event_date) <span class="text-orange-400">{{ \Carbon\Carbon::parse($post->event_date)->format('M d, Y') }}</span> @else {{ $post->created_at->diffForHumans() }} @endif
                                 </p>
                             </div>
@@ -265,7 +276,7 @@
                             <div class="flex items-center justify-between mt-1">
                                 <div class="flex flex-col">
                                     <p class="text-[10px] font-bold text-slate-300">{{ $post->user->name ?? 'User' }}</p>
-                                    @if($post->location) <p class="text-[9px] font-bold text-red-400 mt-0.5 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
+                                    @if($showLocation && $post->location) <p class="text-[9px] font-bold text-red-400 mt-0.5 flex items-center gap-1"><i class="fas fa-map-marker-alt"></i> {{ $post->location }}</p> @endif
                                 </div>
                                 @if($isBuySell) <p class="text-sm font-black text-[#36B3C9]">@if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif</p> @endif
                             </div>
@@ -284,7 +295,6 @@
 
     </div>
 
-    {{-- ADD MODAL --}}
     <div id="addModal" class="hidden fixed inset-0 z-[100] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md transition-all">
         <div class="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh] animate-pop relative">
             <button onclick="toggleModal('addModal')" class="absolute top-8 right-8 text-slate-300 hover:text-slate-800 transition"><i class="fas fa-times text-xl"></i></button>
@@ -339,14 +349,15 @@
                     @csrf <input type="hidden" name="category" value="{{ $type }}">
                     <input type="text" name="title" placeholder="{{ $isPlaces ? 'Landmark Name (e.g. Town Plaza)' : 'Item Name / Title' }}" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-black text-slate-800" required>
                     
-                    {{-- Location map shown for ALL categories --}}
+                    @if($showLocation)
                     <div class="bg-slate-50 rounded-[1.5rem] p-4 border border-slate-100">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2"><i class="fas fa-map-pin text-red-400 mr-1"></i> Pinpoint Location in Baybay Polong</label>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2"><i class="fas fa-map-pin text-red-400 mr-1"></i> Pinpoint Location in Baybay Polong <span class="normal-case font-normal text-slate-400">(Optional)</span></label>
                         <div id="formMap" class="w-full h-[180px] rounded-2xl z-0 mb-3 bg-slate-900"></div>
                         <input type="hidden" name="latitude" id="inputLat">
                         <input type="hidden" name="longitude" id="inputLng">
-                        <input type="text" name="location" placeholder="Location Name (e.g. Zone 1, near Plaza)" class="w-full p-4 bg-white rounded-xl border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-800">
+                        <input type="text" name="location" placeholder="Location Name (e.g. Zone 1, near Plaza) - Optional" class="w-full p-4 bg-white rounded-xl border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-sm text-slate-800">
                     </div>
+                    @endif
 
                     @if($isBuySell) 
                         <select name="condition" class="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold text-sm text-slate-500 cursor-pointer" required><option value="" disabled selected>Select Condition</option><option value="New">New</option><option value="Like New">Like New</option><option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option></select> 
@@ -375,7 +386,7 @@
                 <div class="border-2 border-dashed border-slate-100 rounded-[2rem] p-8 text-center group hover:border-[#36B3C9] hover:bg-slate-50 cursor-pointer relative mt-4">
                     <input type="file" name="images[]" id="imagesInput" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" multiple accept="image/*">
                     <i class="fas fa-camera text-3xl text-slate-200 group-hover:text-[#36B3C9] mb-3"></i>
-                    <span class="block text-[10px] font-black text-slate-300 uppercase tracking-widest">Add Photos</span>
+                    <span class="block text-[10px] font-black text-slate-300 uppercase tracking-widest">Add Photos <span class="normal-case font-normal">(Optional)</span></span>
                 </div>
                 <div id="imagePreviewContainer" class="grid grid-cols-4 gap-3"></div>
                 <button type="submit" class="w-full bg-[#36B3C9] text-white font-black py-5 rounded-[1.8rem] shadow-xl shadow-cyan-100 mt-4 transition hover:brightness-110 active:scale-95 uppercase tracking-widest text-xs">Submit</button>
@@ -383,7 +394,6 @@
         </div>
     </div>
 
-    {{-- DETAIL MODAL --}}
     <div id="detailModal" class="hidden fixed inset-0 z-[110] bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-lg">
         <div class="bg-white text-slate-900 w-full max-w-3xl rounded-[4rem] overflow-hidden shadow-2xl relative animate-pop max-h-[92vh] overflow-y-auto">
             <button onclick="toggleModal('detailModal')" class="absolute top-6 right-6 z-[130] bg-white shadow-xl text-slate-800 p-3 rounded-2xl transition hover:bg-[#36B3C9] hover:text-white"><i class="fas fa-times"></i></button>
@@ -427,7 +437,6 @@
         </div>
     </div>
 
-    {{-- DELETE CONFIRM MODAL --}}
     <div id="deleteConfirmModal" class="hidden fixed inset-0 z-[150] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md">
         <div class="bg-white text-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl text-center animate-pop">
             <div class="bg-red-50 text-red-500 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 text-4xl"><i class="fas fa-trash-alt"></i></div>
@@ -462,11 +471,11 @@
         let currentIdx = 0; let totalImgs = 0; let selectedFiles = [];
         let currentDetailPostId = null;
 
-        // Bounding box for Baybay Polong
+        // BOUNDING BOX SETUP FOR BAYBAY POLONG
         const baybayPolongCenter = [16.0300, 120.2588]; 
         const baybayPolongBounds = L.latLngBounds(
-            [16.0250, 120.2480],
-            [16.0360, 120.2680]
+            [16.0230, 120.2450], 
+            [16.0380, 120.2720]  
         );
         let formMap = null; let formMarker = null;
         let detailMapObj = null; let detailMarker = null;
@@ -502,18 +511,17 @@
             });
         }
 
+        // Floating Map Control (Watermark) for form/details
         function addCustomRoadLabel(mapInstance) {
-            L.marker([16.0330, 120.2588], { 
-                interactive: false, 
-                icon: L.divIcon({
-                    className: 'custom-road-label',
-                    html: `<div class="bg-red-600 text-white border-2 border-white px-5 py-2.5 rounded-full font-black text-[14px] uppercase tracking-widest whitespace-nowrap shadow-[0_4px_15px_rgba(0,0,0,0.5)] flex items-center justify-center gap-2">
-                              <i class="fas fa-star text-yellow-300"></i> Baybay Polong
-                           </div>`,
-                    iconSize: [220, 45],
-                    iconAnchor: [110, 22]
-                })
-            }).addTo(mapInstance);
+            var signControl = L.control({position: 'topright'});
+            signControl.onAdd = function () {
+                var div = L.DomUtil.create('div', 'custom-road-label-container');
+                div.innerHTML = `<div class="bg-red-600/90 backdrop-blur-sm text-white border-2 border-white px-4 py-2 rounded-full font-black text-[12px] uppercase tracking-widest whitespace-nowrap shadow-[0_4px_15px_rgba(0,0,0,0.4)] flex items-center justify-center gap-2 mt-2 mr-2 pointer-events-none">
+                                  <i class="fas fa-star text-yellow-300"></i> Baybay Polong
+                               </div>`;
+                return div;
+            };
+            signControl.addTo(mapInstance);
         }
 
         function toggleModal(id) {
@@ -532,10 +540,10 @@
             if(!formMap) {
                 formMap = L.map('formMap', {
                     center: baybayPolongCenter,
-                    zoom: 16,
-                    minZoom: 16,
+                    zoom: 16, 
+                    minZoom: 15, 
                     maxBounds: baybayPolongBounds,
-                    maxBoundsViscosity: 1.0
+                    maxBoundsViscosity: 1.0 
                 });
                 
                 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -572,9 +580,9 @@
                 detailMapObj = L.map('detailMap', {
                     center: [lat, lng],
                     zoom: 17,
-                    minZoom: 16,
+                    minZoom: 15,
                     maxBounds: baybayPolongBounds,
-                    maxBoundsViscosity: 1.0
+                    maxBoundsViscosity: 1.0 
                 });
                 
                 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(detailMapObj);
@@ -906,7 +914,7 @@
             const inboxContent = document.getElementById('inboxContent');
             inboxContent.innerHTML = '<div class="text-center text-xs font-bold text-slate-400 mt-10">Loading messages...</div>';
 
-            fetch(`/api/inbox?category={{ $type }}`)
+            fetch(`/api/inbox?category={{ $type ?? '' }}`)
                 .then(r => r.json())
                 .then(conversations => {
                     inboxContent.innerHTML = '';
@@ -1072,6 +1080,7 @@
             .then(payload => {
                 let msg = payload.message || payload; 
                 let ownerId = payload.post_owner_id || currentDetailPostId;
+                
                 appendMessageToDOM(postId, msg, msg.user_id, ownerId);
                 const messagesContainer = document.getElementById('chatMessages-' + postId);
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -1162,52 +1171,72 @@
         }
 
         // ============================================================
-        // MAIN PLACES MAP — shows landmarks + all other category pins
+        // FULLSCREEN MAP FUNCTIONALITY
         // ============================================================
+        window.togglePlacesFullscreen = function(e) {
+            if (e) e.preventDefault();
+            const mapContainer = document.getElementById('placesMap');
+            const icon = document.getElementById('fs-icon');
+            
+            if (!mapContainer.classList.contains('fixed')) {
+                // Maximize
+                mapContainer.classList.remove('relative', 'h-[60vh]', 'rounded-[2rem]', 'z-0');
+                mapContainer.classList.add('fixed', 'inset-0', 'w-screen', 'h-screen', 'z-[9999]', 'rounded-none');
+                icon.classList.replace('fa-expand', 'fa-compress');
+            } else {
+                // Minimize
+                mapContainer.classList.remove('fixed', 'inset-0', 'w-screen', 'h-screen', 'z-[9999]', 'rounded-none');
+                mapContainer.classList.add('relative', 'w-full', 'h-[60vh]', 'rounded-[2rem]', 'z-0');
+                icon.classList.replace('fa-compress', 'fa-expand');
+            }
+            // Give Leaflet time to redraw the tiles after resizing
+            setTimeout(() => { if(window.placesMapInstance) window.placesMapInstance.invalidateSize(); }, 300);
+        };
+
+        // 👇 MAIN PLACES MAP 👇
         @if($normalizedType === 'places')
         document.addEventListener('DOMContentLoaded', function() {
             var map = L.map('placesMap', {
                 center: baybayPolongCenter,
                 zoom: 16,
-                minZoom: 16,
+                minZoom: 15,
                 maxBounds: baybayPolongBounds,
                 maxBoundsViscosity: 1.0
             });
+            window.placesMapInstance = map; // Store globally for fullscreen toggle
 
-            // Satellite imagery base layer
+            // Add Maximize button
+            var fullscreenBtn = L.control({position: 'topleft'});
+            fullscreenBtn.onAdd = function() {
+                var div = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-custom');
+                div.innerHTML = `<button onclick="togglePlacesFullscreen(event)" class="bg-white text-slate-800 w-8 h-8 rounded shadow flex items-center justify-center hover:text-[#36B3C9] transition focus:outline-none"><i id="fs-icon" class="fas fa-expand"></i></button>`;
+                return div;
+            };
+            fullscreenBtn.addTo(map);
+
             L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 maxZoom: 19,
                 attribution: '© Esri'
             }).addTo(map);
 
-            // Road labels overlay
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
+                maxZoom: 19,
+                attribution: '© CartoDB'
             }).addTo(map);
 
-            // Welcome pin
-            L.marker(baybayPolongCenter, {
-                icon: L.divIcon({
-                    className: 'custom-welcome-marker',
-                    html: `<div class="bg-red-600 text-white w-12 h-12 flex items-center justify-center rounded-full shadow-[0_4px_10px_rgba(0,0,0,0.5)] border-2 border-white text-xl z-50"><i class="fas fa-star text-yellow-300"></i></div>`,
-                    iconSize: [48, 48],
-                    iconAnchor: [24, 48]
-                }),
-                interactive: false
-            }).addTo(map)
-              .bindTooltip("Welcome to Baybay Polong", { permanent: true, direction: 'top', offset: [0, -48], className: 'welcome-label' });
+            addCustomRoadLabel(map);
 
-            // ── Render Places (current category) WITH name labels ──
             @foreach($posts as $post)
                 @if($post->latitude && $post->longitude)
                     @php $canDelete = ($isAdmin || $isModerator || Auth::id() === $post->user_id); @endphp
                     
-                    var popupHtml_{{ $post->id }} = `
+                    let popupHtml_{{ $post->id }} = `
                         <div class='text-center'>
                             <b class="text-base text-slate-800">{{ addslashes($post->title) }}</b><br>
                             <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{{ str_replace(['_', '-'], ' ', $post->category) }}</span><br>
                             <span class="text-xs text-slate-500">{{ addslashes($post->location ?? 'Baybay Polong') }}</span><br>
                             <button onclick='openDetail({{ $post->id }})' class='text-[10px] font-black text-[#36B3C9] mt-3 uppercase tracking-widest bg-[#36B3C9]/10 px-3 py-1.5 rounded-lg hover:bg-[#36B3C9] hover:text-white transition'>View Details</button>
+                            
                             @if($canDelete)
                                 <div class="mt-2 pt-2 border-t border-slate-100">
                                     <button onclick='triggerDelete({{ $post->id }})' class='text-[9px] font-black text-red-500 uppercase tracking-widest hover:text-red-700 transition'><i class="fas fa-trash"></i> Remove Landmark</button>
@@ -1216,64 +1245,17 @@
                         </div>
                     `;
 
-                    // Places pins: show name label above pin
-                    L.marker([{{ $post->latitude }}, {{ $post->longitude }}], {
-                        icon: getCustomIcon("{{ $post->condition }}", "{{ $post->category }}")
-                    })
-                    .addTo(map)
-                    .bindTooltip("{{ addslashes($post->title) }}", {
-                        permanent: true,
-                        direction: 'top',
-                        offset: [0, -40],
-                        className: 'landmark-label'
-                    })
-                    .bindPopup(popupHtml_{{ $post->id }});
+                    L.marker([{{ $post->latitude }}, {{ $post->longitude }}], { icon: getCustomIcon("{{ $post->condition }}", "{{ $post->category }}") })
+                        .addTo(map)
+                        .bindTooltip("{{ addslashes($post->title) }}", { permanent: true, direction: 'top', offset: [0, -40], className: 'landmark-label' })
+                        .bindPopup(popupHtml_{{ $post->id }});
                 @endif
             @endforeach
-
-            // ── Fetch all other category pins (NO name labels — pin only) ──
-            // Collect the IDs already rendered above so we don't duplicate
-            var renderedIds = new Set([
-                @foreach($posts as $p)
-                    {{ $p->id }},
-                @endforeach
-            ]);
-
-            fetch('/api/posts/all-pinned')
-                .then(function(r) { return r.json(); })
-                .then(function(allPosts) {
-                    allPosts.forEach(function(post) {
-                        // Skip if already rendered as a places pin
-                        if (renderedIds.has(post.id)) return;
-                        // Skip if no coordinates
-                        if (!post.latitude || !post.longitude) return;
-
-                        var categoryNorm = (post.category || '').replace(/_/g, '-');
-                        var icon = getCustomIcon(post.condition || '', categoryNorm);
-
-                        var popupHtml = `
-                            <div class='text-center'>
-                                <b class="text-base text-slate-800">${post.title}</b><br>
-                                <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${(post.category || '').replace(/[_-]/g, ' ')}</span><br>
-                                <span class="text-xs text-slate-500">${post.location || 'Baybay Polong'}</span><br>
-                                <button onclick='openDetail(${post.id})' class='text-[10px] font-black text-[#36B3C9] mt-3 uppercase tracking-widest bg-[#36B3C9]/10 px-3 py-1.5 rounded-lg hover:bg-[#36B3C9] hover:text-white transition'>View Details</button>
-                            </div>
-                        `;
-
-                        // No tooltip/name label for non-places pins — just the icon
-                        L.marker([post.latitude, post.longitude], { icon: icon })
-                            .addTo(map)
-                            .bindPopup(popupHtml);
-                    });
-                })
-                .catch(function(err) {
-                    console.warn('Could not load cross-category pins:', err);
-                });
         });
         @endif
-        // ============================================================
+        // 👆 -------------------------------------------------------------------- 👆
 
-        // ── Events Calendar ──
+        // 👇 EVENTS CALENDAR INITIALIZATION 👇
         @if($isEvent)
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
@@ -1289,15 +1271,15 @@
             }
         });
         @endif
+        // 👆 ------------------------------ 👆
 
         document.addEventListener('DOMContentLoaded', function() {
-            // Auto-dismiss flash messages
             const flashMsg = document.getElementById('flash-message');
             if (flashMsg) {
                 setTimeout(() => {
                     flashMsg.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
                     flashMsg.style.opacity = '0';
-                    flashMsg.style.transform = 'translate(-50%, -20px)';
+                    flashMsg.style.transform = 'translate(-50%, -20px)'; // slight float up effect
                     setTimeout(() => flashMsg.remove(), 500);
                 }, 5000);
             }

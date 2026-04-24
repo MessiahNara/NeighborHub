@@ -3,8 +3,8 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AdminController;
-use App\Http\Controllers\ChatController; 
-use App\Http\Controllers\PostController; 
+use App\Http\Controllers\ChatController;
+use App\Http\Controllers\PostController;
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsModerator;
 use Illuminate\Support\Facades\Route;
@@ -32,9 +32,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/api/post/{id}', [PostController::class, 'show']);
     Route::post('/post/{post}/like', [PostController::class, 'toggleLike'])->name('post.like');
     Route::post('/post/{post}/report', [PostController::class, 'report'])->name('post.report');
+    
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    
+    // 👇 NEW: Route for uploading Profile Pic and ID Verification 👇
+    Route::post('/profile/upload-docs', [ProfileController::class, 'uploadDocs'])->name('profile.upload-docs');
+
     Route::get('/api/chat/{post}', [ChatController::class, 'fetchMessages'])->name('api.chat.fetch');
     Route::post('/api/chat/{post}', [ChatController::class, 'sendMessage'])->name('api.chat.send');
     Route::get('/api/inbox', [ChatController::class, 'fetchInbox'])->name('api.chat.inbox');
@@ -61,10 +66,14 @@ Route::middleware(['auth', 'verified', IsAdmin::class])->prefix('admin')->name('
     Route::post('/users/{user}/promote', [AdminController::class, 'promote'])->name('users.promote');
     Route::post('/users/{user}/promote-mod', [AdminController::class, 'promoteMod'])->name('users.promoteMod');
     
+    // 👇 NEW: Update Roles and Verify Users 👇
+    Route::post('/users/{user}/role', [AdminController::class, 'updateRole'])->name('role');
+    Route::post('/users/{user}/verify', [AdminController::class, 'verifyUser'])->name('verify');
+    
     // Route for manually creating users
     Route::post('/users/create', [AdminController::class, 'createUser'])->name('users.create');
 
-    // 👇 NEW: Manage Dynamic Tags 👇
+    // Manage Dynamic Tags
     Route::get('/tags', [AdminController::class, 'tags'])->name('tags');
     Route::post('/tags', [AdminController::class, 'storeTag'])->name('tags.store');
     Route::delete('/tags/{tag}', [AdminController::class, 'deleteTag'])->name('tags.destroy');
@@ -78,7 +87,6 @@ Route::middleware(['auth', 'verified', IsModerator::class])->prefix('admin')->na
     Route::patch('/reports/{report}/resolve', [AdminController::class, 'resolveReport'])->name('reports.resolve');
     Route::patch('/reports/{report}/dismiss', [AdminController::class, 'dismissReport'])->name('reports.dismiss');
     
-    // MOVED: Moderators can now delete posts directly without waiting for a report!
     Route::delete('/posts/{post}', [AdminController::class, 'deletePost'])->name('posts.destroy');
 });
 

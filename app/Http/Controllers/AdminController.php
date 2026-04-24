@@ -31,14 +31,12 @@ class AdminController extends Controller
         return view('admin.dashboard', compact('stats', 'recentPosts', 'chartData', 'categories'));
     }
 
-    // New method for the dedicated Users Tab
     public function users()
     {
         $users = User::latest()->get();
         return view('admin.users', compact('users'));
     }
 
-    // --- NEW: Manually Create a User ---
     public function createUser(Request $request)
     {
         $request->validate([
@@ -53,7 +51,7 @@ class AdminController extends Controller
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'role' => $request->role,
-            'email_verified_at' => now(), // <--- Auto-verifies the account!
+            'email_verified_at' => now(), 
             'is_banned' => false,
         ]);
 
@@ -73,7 +71,6 @@ class AdminController extends Controller
         return back()->with('success', "User has been {$status}.");
     }
 
-    // New method to promote users to admin
     public function promote(User $user)
     {
         if ($user->role === 'admin') {
@@ -81,13 +78,12 @@ class AdminController extends Controller
         }
 
         $user->role = 'admin';
-        $user->is_banned = false; // Ensure they aren't banned if promoted
+        $user->is_banned = false; 
         $user->save();
 
         return back()->with('success', "{$user->name} has been promoted to Admin.");
     }
 
-    // --- NEW: Method to promote users to Moderator ---
     public function promoteMod(User $user)
     {
         if ($user->role === 'admin' || $user->role === 'moderator') {
@@ -95,10 +91,37 @@ class AdminController extends Controller
         }
 
         $user->role = 'moderator';
-        $user->is_banned = false; 
+        $user->is_banned = false;
         $user->save();
 
         return back()->with('success', "{$user->name} has been promoted to Moderator.");
+    }
+
+    // 👇 NEW: Update Official Barangay Roles 👇
+    public function updateRole(Request $request, User $user)
+    {
+        $request->validate([
+            'role' => 'required|in:user,admin,captain,kagawad,sk_chairman,sk_kagawad'
+        ]);
+
+        $user->role = $request->role;
+        $user->save();
+
+        return back()->with('success', "Role updated successfully for {$user->name}.");
+    }
+
+    // 👇 NEW: Verify User ID Documents 👇
+    public function verifyUser(Request $request, User $user)
+    {
+        $request->validate([
+            'is_verified' => 'required|boolean'
+        ]);
+
+        $user->is_verified = $request->is_verified;
+        $user->save();
+
+        $statusText = $user->is_verified ? 'Verified' : 'Pending/Rejected';
+        return back()->with('success', "Verification status for {$user->name} set to {$statusText}.");
     }
 
     public function deletePost(Post $post)
@@ -119,10 +142,8 @@ class AdminController extends Controller
         return back()->with('success', 'Post deleted.');
     }
 
-    // 1. Show the Reports Page
     public function reports()
     {
-        // Get all pending reports, and eager load the post and users for performance
         $reports = \App\Models\Report::with(['post', 'user', 'post.user'])
             ->where('status', 'pending')
             ->latest()
@@ -131,13 +152,11 @@ class AdminController extends Controller
         return view('admin.reports', compact('reports'));
     }
 
-    // 2. Resolve a Report (Delete the offending post)
     public function resolveReport(\App\Models\Report $report)
     {
         $post = $report->post;
 
         if ($post) {
-            // Delete post images if any exist
             if ($post->image) {
                 $images = is_array($post->image) ? $post->image : json_decode($post->image, true);
                 if (is_array($images)) {
@@ -149,17 +168,14 @@ class AdminController extends Controller
                     }
                 }
             }
-            // Delete the post itself
             $post->delete();
         }
 
-        // Find ALL pending reports for this specific post and mark them as resolved
         \App\Models\Report::where('post_id', $report->post_id)->update(['status' => 'resolved']);
 
         return back()->with('success', 'Post deleted and report(s) marked as resolved.');
     }
 
-    // 3. Dismiss a Report (The post is fine, ignore the report)
     public function dismissReport(\App\Models\Report $report)
     {
         $report->update(['status' => 'dismissed']);
@@ -174,7 +190,6 @@ class AdminController extends Controller
     public function tags()
     {
         $tags = \App\Models\Tag::latest()->get();
-        // We use your exact existing category slugs
         $categories = ['buy-sell', 'borrow', 'events', 'services', 'places', 'announcements', 'complaints', 'requests'];
         
         return view('admin.tags', compact('tags', 'categories'));

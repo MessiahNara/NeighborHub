@@ -41,27 +41,51 @@
                     <table class="min-w-full text-left text-sm whitespace-nowrap">
                         <thead class="text-xs text-slate-400 uppercase tracking-widest bg-slate-50 rounded-lg">
                             <tr>
-                                <th scope="col" class="px-6 py-4 rounded-l-lg">Name</th>
-                                <th scope="col" class="px-6 py-4">Email</th>
-                                <th scope="col" class="px-6 py-4">Role</th>
-                                <th scope="col" class="px-6 py-4 text-center">Status</th>
+                                <th scope="col" class="px-6 py-4 rounded-l-lg">Name & Email</th>
+                                <th scope="col" class="px-6 py-4">ID Verification</th>
+                                <th scope="col" class="px-6 py-4">Assign Role</th>
+                                <th scope="col" class="px-6 py-4 text-center">Account Status</th>
                                 <th scope="col" class="px-6 py-4 rounded-r-lg text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-50">
                             @foreach($users as $user)
                             <tr class="hover:bg-slate-50 transition">
-                                <td class="px-6 py-4 font-bold text-slate-800">{{ $user->name }}</td>
-                                <td class="px-6 py-4 text-slate-500">{{ $user->email }}</td>
                                 <td class="px-6 py-4">
-                                    @if($user->role === 'admin')
-                                        <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-black uppercase tracking-widest"><i class="fas fa-shield-alt mr-1"></i> Admin</span>
-                                    @elseif($user->role === 'moderator')
-                                        <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-[10px] font-black uppercase tracking-widest"><i class="fas fa-gavel mr-1"></i> Mod</span>
+                                    <p class="font-bold text-slate-800">{{ $user->name }}</p>
+                                    <p class="text-slate-500 text-xs mt-0.5">{{ $user->email }}</p>
+                                </td>
+                                
+                                <td class="px-6 py-4">
+                                    <form action="{{ route('admin.verify', $user->id) }}" method="POST">
+                                        @csrf
+                                        <select name="is_verified" onchange="this.form.submit()" class="text-xs p-1 border border-slate-200 rounded bg-white text-slate-700 font-bold mb-1 w-full">
+                                            <option value="0" {{ !$user->is_verified ? 'selected' : '' }}>Pending/Rejected</option>
+                                            <option value="1" {{ $user->is_verified ? 'selected' : '' }}>✅ Verified User</option>
+                                        </select>
+                                    </form>
+                                    @if($user->verification_document)
+                                        <a href="{{ asset('uploads/verifications/' . $user->verification_document) }}" target="_blank" class="text-blue-500 hover:text-blue-700 underline text-[10px] font-black uppercase tracking-widest block mt-1"><i class="fas fa-id-card mr-1"></i> View ID/Cert</a>
                                     @else
-                                        <span class="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest"><i class="fas fa-user mr-1"></i> User</span>
+                                        <span class="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mt-1"><i class="fas fa-times-circle mr-1"></i> No ID Uploaded</span>
                                     @endif
                                 </td>
+
+                                <td class="px-6 py-4">
+                                    <form action="{{ route('admin.role', $user->id) }}" method="POST">
+                                        @csrf
+                                        <select name="role" onchange="this.form.submit()" class="text-xs p-1 border border-slate-200 rounded bg-white text-slate-700 font-bold w-full">
+                                            <option value="user" {{ $user->role == 'user' ? 'selected' : '' }}>Standard User</option>
+                                            <option value="admin" {{ $user->role == 'admin' ? 'selected' : '' }}>Admin</option>
+                                            <option value="captain" {{ $user->role == 'captain' ? 'selected' : '' }}>Brgy. Captain</option>
+                                            <option value="kagawad" {{ $user->role == 'kagawad' ? 'selected' : '' }}>Kagawad</option>
+                                            <option value="sk_chairman" {{ $user->role == 'sk_chairman' ? 'selected' : '' }}>SK Chairman</option>
+                                            <option value="sk_kagawad" {{ $user->role == 'sk_kagawad' ? 'selected' : '' }}>SK Kagawad</option>
+                                            <option value="moderator" {{ $user->role == 'moderator' ? 'selected' : '' }}>Moderator</option>
+                                        </select>
+                                    </form>
+                                </td>
+
                                 <td class="px-6 py-4 text-center">
                                     @if($user->is_banned)
                                         <span class="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] font-black uppercase tracking-widest">Banned</span>
@@ -69,25 +93,9 @@
                                         <span class="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-black uppercase tracking-widest">Active</span>
                                     @endif
                                 </td>
+                                
                                 <td class="px-6 py-4 flex justify-end gap-2">
-                                    
                                     @if($user->role !== 'admin')
-                                        @if($user->role !== 'moderator')
-                                        <form action="{{ route('admin.users.promoteMod', $user->id) }}" method="POST" onsubmit="return confirm('Promote this user to Moderator? They will be able to review and resolve reported posts.');">
-                                            @csrf
-                                            <button type="submit" class="text-blue-600 hover:text-white font-black text-[10px] uppercase tracking-widest bg-blue-50 hover:bg-blue-600 px-3 py-2 rounded-lg transition">
-                                                Make Mod
-                                            </button>
-                                        </form>
-                                        @endif
-
-                                        <form action="{{ route('admin.users.promote', $user->id) }}" method="POST" onsubmit="return confirm('Are you sure you want to make this user an Admin? They will have full control over the system.');">
-                                            @csrf
-                                            <button type="submit" class="text-purple-600 hover:text-white font-black text-[10px] uppercase tracking-widest bg-purple-50 hover:bg-purple-600 px-3 py-2 rounded-lg transition">
-                                                Make Admin
-                                            </button>
-                                        </form>
-
                                         <form action="{{ route('admin.users.toggleBan', $user->id) }}" method="POST" onsubmit="return confirm('Are you sure?');">
                                             @csrf
                                             <button type="submit" class="font-black text-[10px] uppercase tracking-widest px-3 py-2 rounded-lg transition {{ $user->is_banned ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-red-50 text-red-600 hover:bg-red-600 hover:text-white' }}">
@@ -97,7 +105,6 @@
                                     @else
                                         <span class="text-[10px] text-slate-300 font-bold uppercase tracking-widest py-2">No actions</span>
                                     @endif
-
                                 </td>
                             </tr>
                             @endforeach
@@ -139,6 +146,10 @@
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Account Role</label>
                     <select name="role" class="w-full p-4 bg-slate-50 rounded-[1.5rem] border-none focus:ring-2 focus:ring-[#36B3C9]/20 font-bold text-slate-600 cursor-pointer" required>
                         <option value="user" selected>Standard User</option>
+                        <option value="captain">Brgy. Captain</option>
+                        <option value="kagawad">Kagawad</option>
+                        <option value="sk_chairman">SK Chairman</option>
+                        <option value="sk_kagawad">SK Kagawad</option>
                         <option value="moderator">Moderator</option>
                         <option value="admin">Administrator</option>
                     </select>
