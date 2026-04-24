@@ -367,7 +367,7 @@
                             
                             <div class="flex items-center justify-between mt-4 pt-3 border-t border-slate-50">
                                 <span class="text-[9px] font-black text-slate-300 uppercase tracking-widest"><i class="far fa-clock mr-1"></i>{{ $post->created_at->diffForHumans(null, true, true) }}</span>
-                                @if($isBuySell) <p class="text-sm font-black text-[#36B3C9]">@if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif</p> @endif
+                                @if($isBuySell) <p class="text-xl font-black text-[#36B3C9]">@if($post->price) ₱{{ number_format($post->price, 0) }} @else <span class="text-slate-400">Free</span> @endif</p> @endif
                             </div>
                         </div>
                     @endif
