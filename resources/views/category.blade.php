@@ -92,8 +92,8 @@
     $isAdmin     = (Auth::check() && Auth::user()->role === 'admin');
     $isModerator = (Auth::check() && Auth::user()->role === 'moderator');
 
-    // Check if category requires verification to post
-    $requiresVerification = in_array($normalizedType, ['buy-sell', 'borrow', 'services']);
+    // CHECK IF CATEGORY REQUIRES VERIFICATION (Added requests & complaints)
+    $requiresVerification = in_array($normalizedType, ['buy-sell', 'borrow', 'services', 'complaints', 'requests']);
     $isVerified = (Auth::check() && Auth::user()->is_verified == 1);
     $canPost = !$requiresVerification || $isVerified || $isAdmin;
 
@@ -154,27 +154,26 @@
 <body class="bg-slate-50 font-sans antialiased min-h-screen text-slate-900 overflow-x-hidden">
 
     @if(session('success'))
-        <div id="flash-message" class="fixed top-6 left-1/2 -translate-x-1/2 z-[200] bg-green-50 border border-green-200 text-green-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
+        <div id="flash-message" class="fixed top-6 left-1/2 -translate-x-1/2 z-[400] bg-green-50 border border-green-200 text-green-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
             <i class="fas fa-check-circle text-lg"></i>
             <span class="font-bold text-sm">{{ session('success') }}</span>
         </div>
     @endif
     @if(session('error'))
-        <div id="flash-message" class="fixed top-6 left-1/2 -translate-x-1/2 z-[200] bg-red-50 border border-red-200 text-red-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
+        <div id="flash-message" class="fixed top-6 left-1/2 -translate-x-1/2 z-[400] bg-red-50 border border-red-200 text-red-700 px-6 py-3 rounded-2xl shadow-lg animate-pop flex items-center gap-3">
             <i class="fas fa-exclamation-circle text-lg"></i>
             <span class="font-bold text-sm">{{ session('error') }}</span>
         </div>
     @endif
 
     {{-- NAV --}}
-    <nav class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-100 px-4 py-3">
+    <nav class="sticky top-0 z-[100] bg-white/95 backdrop-blur-md border-b border-slate-100 px-4 py-3">
         <div class="max-w-6xl mx-auto flex items-center gap-3">
             <a href="{{ route('dashboard') }}" class="h-10 w-10 bg-slate-100 text-slate-400 rounded-xl flex items-center justify-center transition hover:bg-[#36B3C9] hover:text-white active:scale-90 flex-shrink-0">
                 <i class="fas fa-arrow-left text-sm"></i>
             </a>
             
             <form action="{{ url()->current() }}" method="GET" class="flex-1 flex gap-2">
-                {{-- Keep track of active tags and filters when searching! --}}
                 @if(request('tag')) <input type="hidden" name="tag" value="{{ request('tag') }}"> @endif
                 @if(request('filter')) <input type="hidden" name="filter" value="{{ request('filter') }}"> @endif
                 
@@ -195,8 +194,8 @@
                 @endif
             @elseif(!$isRequest && !$isWishlist && (!$isAdminOnly || $isAdmin || $isModerator))
                 @if(!$canPost)
-                    <button onclick="alert('You must be verified by the Admin to post here. Please go to your Profile and upload your ID or Certificate of Indigency.')"
-                        class="bg-slate-200 text-slate-400 h-10 px-5 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 cursor-not-allowed flex-shrink-0">
+                    <button onclick="toggleModal('unverifiedModal')"
+                        class="bg-slate-200 text-slate-400 h-10 px-5 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 flex-shrink-0 hover:bg-slate-300 hover:text-slate-500 transition">
                         <i class="fas fa-lock"></i> <span class="hidden md:inline">Unverified</span>
                     </button>
                 @else
@@ -294,11 +293,11 @@
             </div>
         @endif
 
-        {{-- REQUEST TILES --}}
+        {{-- REQUEST TILES (Protected by Verification Logic) --}}
         @if($isRequest)
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Files Available to Request</p>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-                <div onclick="openRequestModal('Certificate of Residency')"
+                <div onclick="{{ $canPost ? "openRequestModal('Certificate of Residency')" : "toggleModal('unverifiedModal')" }}"
                      class="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition cursor-pointer group flex items-center gap-4">
                     <div class="bg-blue-50 text-blue-500 w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 group-hover:scale-110 transition">
                         <i class="fas fa-home"></i>
@@ -308,7 +307,7 @@
                         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p>
                     </div>
                 </div>
-                <div onclick="openRequestModal('Certificate of Indigency')"
+                <div onclick="{{ $canPost ? "openRequestModal('Certificate of Indigency')" : "toggleModal('unverifiedModal')" }}"
                      class="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition cursor-pointer group flex items-center gap-4">
                     <div class="bg-green-50 text-green-500 w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 group-hover:scale-110 transition">
                         <i class="fas fa-hands-helping"></i>
@@ -318,7 +317,7 @@
                         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Request Document <i class="fas fa-arrow-right ml-1"></i></p>
                     </div>
                 </div>
-                <div onclick="openRequestModal('Barangay Clearance')"
+                <div onclick="{{ $canPost ? "openRequestModal('Barangay Clearance')" : "toggleModal('unverifiedModal')" }}"
                      class="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition cursor-pointer group flex items-center gap-4">
                     <div class="bg-purple-50 text-purple-500 w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 group-hover:scale-110 transition">
                         <i class="fas fa-stamp"></i>
@@ -513,7 +512,7 @@
     </div>
 
     {{-- ADD/EDIT MODAL --}}
-    <div id="addModal" class="hidden fixed inset-0 z-[100] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md transition-all">
+    <div id="addModal" class="hidden fixed inset-0 z-[120] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md transition-all">
         <div class="bg-white w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl overflow-y-auto max-h-[90vh] animate-pop relative">
             <button onclick="toggleModal('addModal')" class="absolute top-6 right-6 text-slate-300 hover:text-slate-800 transition p-1">
                 <i class="fas fa-times text-lg"></i>
@@ -745,6 +744,21 @@
         </div>
     </div>
 
+    {{-- UNVERIFIED MODAL (NEW BEAUTIFUL POPUP) --}}
+    <div id="unverifiedModal" class="hidden fixed inset-0 z-[300] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md">
+        <div class="bg-white text-slate-900 w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-center animate-pop relative">
+            <button onclick="toggleModal('unverifiedModal')" class="absolute top-4 right-4 bg-slate-100 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center transition hover:bg-slate-200">
+                <i class="fas fa-times text-sm"></i>
+            </button>
+            <div class="bg-amber-50 text-amber-500 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-3xl"><i class="fas fa-shield-alt"></i></div>
+            <h3 class="text-2xl font-black mb-2 tracking-tighter uppercase text-slate-800">Not Verified Yet</h3>
+            <p class="text-slate-500 text-[10px] font-bold mb-7 uppercase tracking-widest leading-relaxed">Please verify your account by uploading a Valid ID or Brgy. Certificate to access this feature.</p>
+            <div class="flex flex-col gap-3">
+                <a href="{{ route('profile.edit', ['onboarding' => 1]) }}" class="w-full block bg-[#36B3C9] text-white font-black py-4 rounded-2xl hover:brightness-110 transition active:scale-95 shadow-lg shadow-cyan-200 uppercase tracking-widest text-[10px]">Verify Now</a>
+            </div>
+        </div>
+    </div>
+
     {{-- REPORT MODAL --}}
     <div id="reportModal" class="hidden fixed inset-0 z-[150] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-md">
         <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative animate-pop">
@@ -827,6 +841,42 @@
         const baybayPolongBounds = L.latLngBounds([16.0230, 120.2450], [16.0380, 120.2720]);
         let formMap = null; let formMarker = null;
         let detailMapObj = null; let detailMarker = null;
+
+        // Ensure missing request modal logic exists
+        function openRequestModal(docType) {
+            resetUploadForm();
+            const reqDocType = document.getElementById('requestDocType');
+            if (reqDocType) reqDocType.value = docType;
+            
+            const reqTitle = document.getElementById('requestModalTitle');
+            if (reqTitle) reqTitle.innerText = 'Request ' + docType;
+            
+            const formTitle = document.getElementById('formTitle');
+            if (formTitle) formTitle.value = docType; // fallback
+
+            toggleModal('addModal');
+        }
+
+        function prepareRequestDescription() {
+            const type = document.getElementById('requestDocType').value;
+            const name = document.getElementById('reqName').value;
+            const addr = document.getElementById('reqAddress').value;
+            const purp = document.getElementById('reqPurpose').value;
+            
+            const actualDesc = document.getElementById('requestActualDesc');
+            if (actualDesc) {
+                actualDesc.value = `Requester Name: ${name}\nHome Address: ${addr}\nPurpose for Request:\n${purp}`;
+            }
+            
+            const formTitle = document.getElementById('formTitle');
+            if (!formTitle) {
+                const input = document.createElement('input');
+                input.type = 'hidden'; input.name = 'title'; input.value = type;
+                document.getElementById('postForm').appendChild(input);
+            } else {
+                formTitle.value = type;
+            }
+        }
 
         function toggleWishlist(event, postId, btnElement) {
             event.stopPropagation();
@@ -1237,8 +1287,9 @@
                             // Extract just the first name for the chat popup button
                             const firstName = ownerName ? ownerName.split(' ')[0] : 'User';
 
+                            // 👇 CHANGED: Triggers the new Unverified Popup instead of an alert 👇
                             if (!isUserVerified) {
-                                contactArea.innerHTML = `<button onclick="alert('You must be verified by the Admin to interact and message other users. Please go to your Profile and upload your ID or Certificate of Indigency.')" class="w-full bg-slate-200 text-slate-400 font-black py-3.5 rounded-xl flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] cursor-not-allowed mb-2"><i class="fas fa-lock"></i> Verify to Message</button>`;
+                                contactArea.innerHTML = `<button onclick="toggleModal('unverifiedModal')" class="w-full bg-slate-200 text-slate-400 font-black py-3.5 rounded-xl flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] cursor-pointer hover:bg-slate-300 hover:text-slate-500 transition mb-2"><i class="fas fa-lock"></i> Verify to Message</button>`;
                             } else {
                                 if(isBuySell) {
                                     contactArea.innerHTML = `<div class="flex flex-col gap-2.5 w-full mb-2"><div class="flex rounded-xl overflow-hidden border border-[#36B3C9]/20 shadow-md shadow-cyan-100/50 bg-slate-50"><span class="flex items-center pl-4 text-slate-400 font-black text-sm">₱</span><input type="number" id="offerInput" placeholder="Amount" class="flex-1 border-none bg-slate-50 px-2 font-bold text-sm text-slate-800 focus:ring-0 py-3 min-w-0"><button onclick="sendOffer('${ownerName}', '${safeTitle}')" class="bg-[#36B3C9] text-white px-5 font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition">Offer</button></div><button onclick="openChatBox(${d.id}, '${firstName}', '${safeTitle}')" class="w-full bg-slate-800 text-white font-black py-3.5 rounded-xl shadow-lg transition hover:bg-slate-700 active:scale-95 uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"><i class="fas fa-comment-alt"></i> Send Message</button></div>`;
@@ -1338,7 +1389,6 @@
                             
                             const safeTitle = conv.post ? conv.post.title.replace(/['"]/g, '') : 'Post';
                             
-                            // 👇 FIX 1: Show Admin Name + Listing in Inbox Preview 👇
                             const otherUserName = otherUser ? (otherUser.official_name || otherUser.name).replace(/['"]/g, '') : 'Deleted User';
                             
                             const html = `<div onclick="openChatFromInbox(${conv.post_id}, '${otherUserName}', '${safeTitle}')" class="p-3.5 rounded-xl cursor-pointer transition hover:shadow-md ${unreadClass}"><div class="flex justify-between items-start mb-1"><span class="text-xs ${titleClass} truncate">${otherUserName} <span class="font-normal text-slate-400 mx-0.5">–</span> ${safeTitle}</span><span class="text-[9px] font-bold text-slate-300 ml-2 whitespace-nowrap flex-shrink-0">${dateText}</span></div><p class="text-xs text-slate-500 truncate mt-1 ${isUnread ? 'font-bold text-slate-700' : ''}">${lastMsg && lastMsg.user_id === currentUserId ? '<span class="text-slate-300">You: </span>' : ''}${msgText}</p></div>`;
@@ -1355,8 +1405,6 @@
 
         function openChatFromInbox(postId, postOwnerName, postTitle) { 
             toggleInboxPanel(); 
-            // the inbox passes the full name to postOwnerName. 
-            // We want the chat box to only display the first name, so we split it here.
             const firstName = postOwnerName ? postOwnerName.split(' ')[0] : 'User';
             openChatBox(postId, firstName, postTitle); 
         }
@@ -1393,7 +1441,6 @@
                     chatInputForm = `<div class="bg-slate-100 text-slate-400 font-black uppercase tracking-widest text-[10px] p-3.5 rounded-2xl text-center flex items-center justify-center gap-2"><i class="fas fa-lock"></i> Verify Profile to Reply</div>`;
                 }
                 
-                // 👇 FIX 2: Modern 3-dot dropdown for deleting conversations 👇
                 const boxHtml = `
                     <div id="chatBox-${postId}" class="hidden fixed bottom-0 right-24 sm:right-32 w-72 bg-white border border-slate-200 shadow-2xl rounded-t-[1.5rem] flex-col z-[200]">
                         <div class="bg-[#36B3C9] text-white px-4 py-3.5 rounded-t-[1.5rem] flex justify-between items-center shadow-sm relative">
