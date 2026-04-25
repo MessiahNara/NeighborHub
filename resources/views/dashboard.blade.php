@@ -45,6 +45,34 @@
                 </div>
             </div>
 
+            {{-- 👇 FIXED UNVERIFIED NOTIFICATION BANNER 👇 --}}
+            @if(!Auth::user()->is_verified)
+                <div class="bg-amber-50 border-2 border-amber-200 p-5 rounded-[2rem] mb-10 flex flex-col sm:flex-row items-center justify-between shadow-sm gap-5 text-center sm:text-left relative z-20 w-full overflow-hidden">
+                    
+                    {{-- Left Side: Icon and Text --}}
+                    <div class="flex flex-col sm:flex-row items-center gap-4 w-full">
+                        <div class="w-12 h-12 bg-amber-100 text-amber-500 rounded-2xl flex items-center justify-center text-xl shadow-inner flex-shrink-0">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h4 class="font-black uppercase tracking-widest text-xs text-amber-800 mb-1">Verification Required</h4>
+                            <p class="text-[10px] font-bold text-amber-700/80 uppercase tracking-widest leading-relaxed">
+                                Please verify your account to access all posting features.
+                            </p>
+                        </div>
+                    </div>
+                    
+{{-- Right Side: Button --}}
+<div class="flex-shrink-0 w-full sm:w-auto">
+    <a href="{{ route('profile.edit', ['onboarding' => 1]) }}" 
+       class="block w-full sm:w-auto bg-[#36B3C9] hover:brightness-110 text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-cyan-500/30 active:scale-95 text-center">
+        Verify Now
+    </a>
+</div>
+                </div>
+            @endif
+            {{-- 👆 END BANNER 👆 --}}
+
             <div class="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-6 pb-24">
                 <a href="{{ route('category.show', 'buy-sell') }}" class="relative group bg-slate-900 p-8 rounded-[2.5rem] shadow-xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 flex flex-col items-center justify-center gap-4 text-center overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
