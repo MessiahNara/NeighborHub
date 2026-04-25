@@ -10,12 +10,8 @@ use Illuminate\Support\Facades\File;
 
 class DashboardController extends Controller
 {
-    /**
-     * Show the Main Dashboard with dynamic post counts.
-     */
     public function index()
     {
-        // Check if the current user is an Admin OR a Moderator
         $userRole = Auth::check() ? strtolower(trim(Auth::user()->role)) : 'user';
         $hasElevatedAccess = in_array($userRole, ['admin', 'moderator']);
         $userId = Auth::id();
@@ -26,14 +22,11 @@ class DashboardController extends Controller
             'events'     => Post::where('category', 'events')->count(),
             'services'   => Post::where('category', 'services')->count(),
             'announce'   => Post::where('category', 'announcements')->count(),
-            
-            // Allow BOTH Admins and Moderators to see these counts
             'places'     => $hasElevatedAccess ? Post::where('category', 'places')->count() : null,
             'complaints' => $hasElevatedAccess ? Post::where('category', 'complaints')->count() : null,
             'requests'   => $hasElevatedAccess ? Post::where('category', 'requests')->count() : null,
         ];
 
-        // Start building the recent updates query
         $recentUpdatesQuery = Post::with('user');
 
         if ($hasElevatedAccess) {
@@ -50,28 +43,22 @@ class DashboardController extends Controller
 
         $recentUpdates = $recentUpdatesQuery->take(5)->get();
 
-        // --- BULLETPROOF FIX: CATCH ALL UNREAD FORMATS (FALSE, 0, OR NULL) ---
         $chatNotifications = \App\Models\Message::where(function($query) {
-                // This guarantees we catch unread messages no matter how your database saves them
                 $query->where('is_read', false)
                       ->orWhere('is_read', 0)
                       ->orWhereNull('is_read');
             })
-            ->where('user_id', '!=', $userId) // Messages NOT sent by me
+            ->where('user_id', '!=', $userId)
             ->whereHas('conversation', function($q) use ($userId) {
-                $q->where('sender_id', $userId)
-                  ->orWhere('receiver_id', $userId);
+                $q->where('sender_id', $userId)->orWhere('receiver_id', $userId);
             })
-            ->with(['user', 'conversation.post']) // Load the sender and the post it belongs to
+            ->with(['user', 'conversation.post']) 
             ->latest()
             ->get();
 
         return view('dashboard', compact('counts', 'recentUpdates', 'chatNotifications'));
     }
 
-    /**
-     * Show a specific category with search and tag filtering.
-     */
     public function show(Request $request, $type)
     {
         $categoryMap = [
@@ -81,15 +68,11 @@ class DashboardController extends Controller
         ];
 
         $dbCategory = $categoryMap[$type] ?? $type;
-        
         $query = Post::where('category', $dbCategory);
 
-        // Privacy control for requests and complaints
         $privateCategories = ['requests', 'complaints'];
         if (in_array($dbCategory, $privateCategories)) {
             $userRole = Auth::check() ? strtolower(trim(Auth::user()->role)) : 'user';
-            
-            // Hide private posts IF the user is NOT an Admin AND NOT a Moderator
             if (!in_array($userRole, ['admin', 'moderator'])) {
                 $query->where('user_id', Auth::id());
             }
@@ -98,23 +81,17 @@ class DashboardController extends Controller
         if ($request->filled('my_posts') && $request->my_posts == '1') {
             $query->where('user_id', Auth::id());
         }
-
         if ($request->filled('search')) {
             $query->where('title', 'like', '%' . $request->search . '%');
         }
-
         if ($request->filled('tag')) {
             $query->whereJsonContains('tags', $request->tag);
         }
 
         $posts = $query->latest()->get();
-        
         return view('category', compact('posts', 'type'));
     }
 
-    /**
-     * Save a new post to the MySQL database.
-     */
     public function store(Request $request)
     {
         $rules = [
@@ -124,12 +101,9 @@ class DashboardController extends Controller
             'price'       => 'nullable|numeric',
             'event_date'  => 'nullable|date',
             'tags'        => 'nullable|array', 
-            
-            // 👇 NEW: Validation for the interactive pinpoint map 👇
             'location'    => 'nullable|string|max:255',
             'latitude'    => 'nullable|numeric',
             'longitude'   => 'nullable|numeric',
-            
             'images.*'    => 'image|mimes:jpeg,png,jpg,gif|max:2048'
         ];
 
@@ -140,23 +114,17 @@ class DashboardController extends Controller
         }
 
         $request->validate($rules);
-
         $adminOnlyCategories = ['announce', 'announcements', 'event', 'events'];
-        
-        // Allow Moderators to post globally as well
         $userRole = Auth::user()->role;
+        
         if (in_array($request->category, $adminOnlyCategories) && !in_array($userRole, ['admin', 'moderator'])) {
             return back()->with('error', 'Only administrators and moderators can post in the Announcements or Events category.');
         }
 
-        // 👇 NEW: Added location, latitude, and longitude to the data extraction 👇
         $data = $request->only(['title', 'category', 'description', 'price', 'condition', 'event_date', 'tags', 'location', 'latitude', 'longitude']);
         
-        if ($data['category'] === 'announce') {
-            $data['category'] = 'announcements';
-        } elseif ($data['category'] === 'event') {
-            $data['category'] = 'events';
-        }
+        if ($data['category'] === 'announce') $data['category'] = 'announcements';
+        elseif ($data['category'] === 'event') $data['category'] = 'events';
         
         if ($request->hasFile('images')) {
             $imageNames = [];
@@ -169,26 +137,55 @@ class DashboardController extends Controller
         }
 
         $data['user_id'] = Auth::id();
-
         Post::create($data);
 
         return back()->with('success', 'Post created successfully.');
     }
 
-    /**
-     * Update the status and appointment date of a request (Admin/Mod Only)
-     */
+    // 👇 NEW: Edit Post Functionality 👇
+    public function update(Request $request, $id)
+    {
+        $post = Post::findOrFail($id);
+        $userRole = Auth::user()->role;
+
+        // Ensure only owner or admin can edit
+        if (Auth::id() !== $post->user_id && !in_array($userRole, ['admin', 'moderator'])) {
+            return abort(403, 'Unauthorized action.');
+        }
+
+        $post->title = $request->title;
+        $post->description = $request->description;
+        $post->location = $request->location ?? $post->location;
+        $post->latitude = $request->latitude ?? $post->latitude;
+        $post->longitude = $request->longitude ?? $post->longitude;
+        
+        if ($request->has('price')) $post->price = $request->price;
+        if ($request->has('condition')) $post->condition = $request->condition;
+        if ($request->has('event_date')) $post->event_date = $request->event_date;
+        if ($request->has('tags')) $post->tags = json_encode($request->tags);
+
+        if ($request->hasFile('images')) {
+            $imageNames = [];
+            foreach ($request->file('images') as $image) {
+                $name = time() . '_' . uniqid() . '.' . $image->extension();
+                $image->move(public_path('uploads'), $name);
+                $imageNames[] = $name;
+            }
+            $post->image = $imageNames;
+        }
+
+        $post->save();
+        return back()->with('success', 'Post updated successfully!');
+    }
+
     public function updateStatus(Request $request, $id)
     {
         $post = Post::findOrFail($id);
         $userRole = Auth::user()->role;
 
-        if (!in_array($userRole, ['admin', 'moderator'])) {
-            return abort(403, 'Unauthorized action.');
-        }
+        if (!in_array($userRole, ['admin', 'moderator'])) return abort(403, 'Unauthorized action.');
 
         $post->status = $request->status;
-        
         if ($request->filled('event_date')) {
             $post->event_date = Carbon::parse($request->event_date)->format('Y-m-d H:i:s');
         } else {
@@ -196,13 +193,9 @@ class DashboardController extends Controller
         }
 
         $post->save();
-
         return back()->with('success', 'Appointment scheduled/updated successfully!');
     }
 
-    /**
-     * Delete a post.
-     */
     public function destroy($id)
     {
         $post = Post::findOrFail($id);
@@ -214,13 +207,10 @@ class DashboardController extends Controller
                 if (is_array($images)) {
                     foreach ($images as $img) {
                         $filePath = public_path('uploads/' . $img);
-                        if (File::exists($filePath)) {
-                            File::delete($filePath);
-                        }
+                        if (File::exists($filePath)) File::delete($filePath);
                     }
                 }
             }
-
             $post->delete();
             return back()->with('success', 'Post deleted.');
         }

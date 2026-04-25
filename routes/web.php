@@ -26,14 +26,18 @@ Route::get('/check-role', function () {
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/category/{type}', [DashboardController::class, 'show'])->name('category.show');
+    
+    // 👇 ADDED EDIT ROUTE HERE 👇
     Route::post('/post', [DashboardController::class, 'store'])->name('post.store');
+    Route::put('/post/{id}', [DashboardController::class, 'update'])->name('post.update');
     Route::delete('/post/{id}', [DashboardController::class, 'destroy'])->name('post.destroy');
+    
     Route::patch('/post/{id}/status', [DashboardController::class, 'updateStatus'])->name('post.updateStatus');
     Route::get('/api/post/{id}', [PostController::class, 'show']);
     Route::post('/post/{post}/like', [PostController::class, 'toggleLike'])->name('post.like');
     Route::post('/post/{post}/report', [PostController::class, 'report'])->name('post.report');
     
-    // 👇 NEW: Seller Transaction Status Route 👇
+    // Seller Transaction Status Route
     Route::patch('/api/post/{post}/transaction-status', [PostController::class, 'updateTransactionStatus']);
     
     // Wishlist Routes
@@ -47,8 +51,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Route for uploading Profile Pic and ID Verification
     Route::post('/profile/upload-docs', [ProfileController::class, 'uploadDocs'])->name('profile.upload-docs');
 
+    // Chat Routes
     Route::get('/api/chat/{post}', [ChatController::class, 'fetchMessages'])->name('api.chat.fetch');
     Route::post('/api/chat/{post}', [ChatController::class, 'sendMessage'])->name('api.chat.send');
+    Route::delete('/api/chat/{post}', [ChatController::class, 'deleteConversation'])->name('api.chat.delete');
+    
     Route::get('/api/inbox', [ChatController::class, 'fetchInbox'])->name('api.chat.inbox');
     Route::get('/inbox', [ChatController::class, 'index'])->name('chat.index');
     Route::post('/notifications/clear', function() {

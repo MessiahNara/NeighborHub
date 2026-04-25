@@ -47,7 +47,7 @@ class ChatController extends Controller
                 return response()->json([
                     'messages' => [], 
                     'current_user_id' => Auth::id(),
-                    'post_owner_id' => $post->user_id // <--- ADDED
+                    'post_owner_id' => $post->user_id
                 ]);
             }
         } else {
@@ -64,13 +64,21 @@ class ChatController extends Controller
         return response()->json([
             'messages' => $messages,
             'current_user_id' => Auth::id(),
-            'post_owner_id' => $post->user_id // <--- ADDED
+            'post_owner_id' => $post->user_id
         ]);
     }
 
     public function sendMessage(Request $request, Post $post)
     {
-        $request->validate(['body' => 'required|string']);
+        // 👇 Make body optional if there is an image, and validate the image 👇
+        $request->validate([
+            'body' => 'nullable|string',
+            'image' => 'nullable|image|max:5120' // Max 5MB
+        ]);
+
+        if (!$request->body && !$request->hasFile('image')) {
+            return response()->json(['error' => 'Message or image is required'], 422);
+        }
 
         if ($post->user_id === Auth::id()) {
             $conversation = Conversation::where('post_id', $post->id)
@@ -78,24 +86,53 @@ class ChatController extends Controller
                 ->latest()
                 ->first();
         } else {
-            $conversation = Conversation::where('post_id', $post->id)
-                ->where('sender_id', Auth::id())
-                ->where('receiver_id', $post->user_id)
-                ->first();
+            $conversation = Conversation::firstOrCreate([
+                'post_id' => $post->id,
+                'sender_id' => Auth::id(),
+                'receiver_id' => $post->user_id,
+            ]);
         }
 
         if (!$conversation) {
             return response()->json(['error' => 'Conversation not found'], 404);
         }
 
+        // 👇 Handle Image Upload 👇
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('uploads/messages'), $filename);
+            $imagePath = $filename;
+        }
+
         $message = $conversation->messages()->create([
             'user_id' => Auth::id(),
             'body' => $request->body,
+            'image' => $imagePath, // Save the image path
         ]);
 
         return response()->json([
             'message' => $message->load('user:id,name'),
-            'post_owner_id' => $post->user_id // <--- ADDED
+            'post_owner_id' => $post->user_id
         ]);
+    }
+
+    // 👇 NEW: Delete Conversation Logic 👇
+    public function deleteConversation(Post $post)
+    {
+        $userId = Auth::id();
+        
+        $conversation = Conversation::where('post_id', $post->id)
+            ->where(function($q) use ($userId) {
+                $q->where('sender_id', $userId)->orWhere('receiver_id', $userId);
+            })->first();
+
+        if ($conversation) {
+            $conversation->delete(); // This deletes the conversation and cascades to delete all messages inside it
+            return response()->json(['success' => true]);
+        }
+
+        return response()->json(['success' => false], 404);
     }
 }
